@@ -92,7 +92,7 @@ export default function AdminDashboard() {
 
   // Socket.io connection
   useEffect(() => {
-    const socket = socketIO({ path: "/api/socket.io" });
+    const socket = socketIO({ path: "/socket.io" });
     socketRef.current = socket;
     socket.emit("joinAdmin", "admin-token");
 

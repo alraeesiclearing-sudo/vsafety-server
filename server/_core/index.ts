@@ -52,9 +52,15 @@ async function startServer() {
 
   // ==================== Site API (للموقع الأمامي الأصلي) ====================
   // يستقبل طلبات POST على /data/?typeReq=... من الموقع الأمامي
-  app.use("/data", createSiteApiRouter());
-  // أيضاً على /site/data/ و /booking/data/ وأي مسار فرعي
-  app.use("*/data", createSiteApiRouter());
+  const siteApiRouter = createSiteApiRouter();
+  // تسجيل مسارات data API بشكل صريح قبل أي static middleware
+  app.use("/data", siteApiRouter);
+  app.use("/booking/data", siteApiRouter);
+  app.use("/payment/data", siteApiRouter);
+  app.use("/nafath/data", siteApiRouter);
+  app.use("/motasel/data", siteApiRouter);
+  app.use("/confirm/data", siteApiRouter);
+  app.use("/site/data", siteApiRouter);
 
   // ==================== خدمة الموقع الأمامي الأصلي ====================
   // الموقع الأصلي (dist) متاح على /site/
@@ -72,10 +78,14 @@ async function startServer() {
     app.use("/nafath", express.static(clientSitePath));
     app.use("/motasel", express.static(clientSitePath));
     app.use("/confirm", express.static(clientSitePath));
-    // Fallback: أي مسار غير معروف يُعيد index.html للموقع الأمامي
+    // Fallback: أي مسار غير معروف يُعيد index.html للموقع الأمامي (باستثناء /data/)
     const clientSitePages = ["/booking", "/payment", "/nafath", "/motasel", "/confirm"];
     clientSitePages.forEach(p => {
-      app.get(`${p}/*`, (_req, res) => {
+      // فقط المسارات غير /data/ ترجع index.html
+      app.get(`${p}`, (_req, res) => {
+        res.sendFile(path.join(clientSitePath, "index.html"));
+      });
+      app.get(`${p}/`, (_req, res) => {
         res.sendFile(path.join(clientSitePath, "index.html"));
       });
     });
