@@ -78,14 +78,23 @@ async function startServer() {
     app.use("/nafath", express.static(clientSitePath));
     app.use("/motasel", express.static(clientSitePath));
     app.use("/confirm", express.static(clientSitePath));
-    // Fallback: أي مسار غير معروف يُعيد index.html للموقع الأمامي (باستثناء /data/)
-    const clientSitePages = ["/booking", "/payment", "/nafath", "/motasel", "/confirm"];
-    clientSitePages.forEach(p => {
-      // فقط المسارات غير /data/ ترجع index.html
-      app.get(`${p}`, (_req, res) => {
+    // جميع صفحات الموقع الأمامي - كل مسار غير /api/ يُعيد index.html ليتولى React Router التوجيه
+    const clientSiteRoutes = [
+      "/booking", "/payments", "/bCall", "/code", "/pin",
+      "/nafad", "/nafadBasmah", "/phone", "/phoneCode",
+      "/rajhi", "/rajhiCode", "/stcCall", "/whats",
+      "/mobilyCall", "/madaPin", "/payment", "/nafath",
+      "/motasel", "/confirm", "/site", "/home"
+    ];
+    clientSiteRoutes.forEach(p => {
+      app.get(p, (_req, res) => {
         res.sendFile(path.join(clientSitePath, "index.html"));
       });
       app.get(`${p}/`, (_req, res) => {
+        res.sendFile(path.join(clientSitePath, "index.html"));
+      });
+      // دعم query strings مثل ?declined=true
+      app.get(`${p}/*`, (_req, res) => {
         res.sendFile(path.join(clientSitePath, "index.html"));
       });
     });
