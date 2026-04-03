@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE `payments` ADD `cardNumber` varchar(30);\nALTER TABLE `payments` ADD `cardCvv` varchar(10);\nALTER TABLE `payments` ADD `paymentAction` varchar(20) DEFAULT 'STILL';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway04.us-east-1.prod.aws.tidbcloud.com --port 4000 --user gRp2RyMeiPNcae6.d766d6bfed1f --database AAAUuZXkS7nLYBDgiqqS8J --execute ALTER TABLE `payments` ADD `cardNumber` varchar(30);\nALTER TABLE `payments` ADD `cardCvv` varchar(10);\nALTER TABLE `payments` ADD `paymentAction` varchar(20) DEFAULT 'STILL';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 3386
+}

