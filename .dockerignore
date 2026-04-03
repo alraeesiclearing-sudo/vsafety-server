@@ -1,0 +1,15 @@
+node_modules
+.git
+.gitignore
+.manus-logs
+dist
+*.log
+.env
+.env.local
+.env.development
+.env.production
+README.md
+*.md
+!env.example.txt
+screenshots
+page_texts

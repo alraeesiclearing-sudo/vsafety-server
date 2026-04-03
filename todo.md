@@ -62,3 +62,12 @@
 - [x] اسم حامل البطاقة في سطر كامل
 - [x] رقم البطاقة + تاريخ الانتهاء + CVV في سطر واحد جنب بعض
 - [x] OTP و ATM PIN تحتهم
+
+## ملفات Deployment للرفع على السيرفر
+- [x] Dockerfile للبناء والتشغيل
+- [x] docker-compose.yml للتشغيل مع MySQL
+- [x] railway.toml لـ Railway
+- [x] render.yaml لـ Render
+- [x] env.example.txt بجميع المتغيرات المطلوبة
+- [x] DEPLOYMENT_GUIDE.md تعليمات الرفع بالعربي
+- [x] اختبار بناء وضع الإنتاج (11/11 نجح)

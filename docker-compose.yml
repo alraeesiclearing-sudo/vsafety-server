@@ -1,0 +1,64 @@
+version: "3.9"
+
+services:
+  # ============================================================
+  # قاعدة البيانات MySQL
+  # ============================================================
+  db:
+    image: mysql:8.0
+    container_name: inspection_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword123}
+      MYSQL_DATABASE: ${DB_NAME:-inspection_db}
+      MYSQL_USER: ${DB_USER:-inspection_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-inspection_pass123}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootpassword123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ============================================================
+  # تطبيق Node.js
+  # ============================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inspection_app
+    restart: always
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: mysql://${DB_USER:-inspection_user}:${DB_PASSWORD:-inspection_pass123}@db:3306/${DB_NAME:-inspection_db}
+      JWT_SECRET: ${JWT_SECRET:-change_this_to_a_very_long_random_secret_key_at_least_64_chars}
+      # ===== متغيرات Manus OAuth (اختياري - للمصادقة) =====
+      VITE_APP_ID: ${VITE_APP_ID:-}
+      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL:-}
+      VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL:-}
+      OWNER_OPEN_ID: ${OWNER_OPEN_ID:-}
+      OWNER_NAME: ${OWNER_NAME:-}
+      # ===== متغيرات Manus Built-in APIs (اختياري) =====
+      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY:-}
+      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL:-}
+      VITE_FRONTEND_FORGE_API_KEY: ${VITE_FRONTEND_FORGE_API_KEY:-}
+      VITE_FRONTEND_FORGE_API_URL: ${VITE_FRONTEND_FORGE_API_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - app_logs:/app/logs
+
+volumes:
+  mysql_data:
+    driver: local
+  app_logs:
+    driver: local
