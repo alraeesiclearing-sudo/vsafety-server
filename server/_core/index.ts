@@ -11,6 +11,8 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { initSocket } from "../socket";
 import { createSiteApiRouter } from "../site-api";
+import { drizzle } from "drizzle-orm/mysql2";
+import { migrate } from "drizzle-orm/mysql2/migrator";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -31,7 +33,26 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+async function runMigrations() {
+  if (!process.env.DATABASE_URL) {
+    console.warn("[DB] DATABASE_URL not set, skipping migrations");
+    return;
+  }
+  try {
+    console.log("[DB] Running database migrations...");
+    const db = drizzle(process.env.DATABASE_URL);
+    const migrationsFolder = process.env.NODE_ENV === "development"
+      ? path.resolve(import.meta.dirname, "../../drizzle")
+      : path.resolve(import.meta.dirname, "../drizzle");
+    await migrate(db, { migrationsFolder });
+    console.log("[DB] Migrations completed successfully");
+  } catch (error) {
+    console.error("[DB] Migration failed:", error);
+  }
+}
+
 async function startServer() {
+  await runMigrations();
   const app = express();
   const server = createServer(app);
   // تهيئة Socket.io
