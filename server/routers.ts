@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { ENV } from "./_core/env";
+import { sdk } from "./_core/sdk";
+import { upsertUser } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
@@ -626,6 +629,41 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    adminLogin: publicProcedure
+      .input(z.object({ username: z.string(), password: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const { username, password } = input;
+        const expectedUsername = ENV.adminUsername || "admin";
+        const expectedPassword = ENV.adminPassword;
+        if (!expectedPassword) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "لم يتم تعيين كلمة مرور المسؤول. يرجى تعيين ADMIN_PASSWORD في متغيرات البيئة.",
+          });
+        }
+        if (username !== expectedUsername || password !== expectedPassword) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "اسم المستخدم أو كلمة المرور غير صحيحة",
+          });
+        }
+        const adminOpenId = `local_admin_${expectedUsername}`;
+        await upsertUser({
+          openId: adminOpenId,
+          name: expectedUsername,
+          email: null,
+          loginMethod: "password",
+          role: "admin",
+          lastSignedIn: new Date(),
+        });
+        const sessionToken = await sdk.signSession(
+          { openId: adminOpenId, appId: "local", name: expectedUsername },
+          { expiresInMs: ONE_YEAR_MS }
+        );
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+        return { success: true };
+      }),
   }),
   booking: bookingRouter,
   payment: paymentRouter,
