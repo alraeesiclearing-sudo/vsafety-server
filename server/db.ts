@@ -133,7 +133,7 @@ export async function markBookingRead(referenceId: string) {
 
 export async function getBookingsStats() {
   const db = await getDb();
-  if (!db) return { total: 0, new: 0, pending: 0, completed: 0 };
+  if (!db) return { total: 0, new: 0, pending: 0, completed: 0, visitors: 0 };
   const total = await db.select({ count: sql<number>`count(*)` }).from(bookings);
   const newCount = await db
     .select({ count: sql<number>`count(*)` })
@@ -143,10 +143,23 @@ export async function getBookingsStats() {
     .select({ count: sql<number>`count(*)` })
     .from(bookings)
     .where(eq(bookings.status, "completed"));
+  // الزوار = عدد الـ IP المختلفة في الحجوزات
+  const visitorsResult = await db
+    .select({ count: sql<number>`count(DISTINCT clientIp)` })
+    .from(bookings);
+  // قيد المعالجة = الحجوزات التي ليست جديدة ولا مكتملة ولا ملغية
+  const pendingCount = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(bookings)
+    .where(
+      sql`status NOT IN ('new', 'completed', 'cancelled')`
+    );
   return {
     total: Number(total[0]?.count ?? 0),
     new: Number(newCount[0]?.count ?? 0),
     completed: Number(completed[0]?.count ?? 0),
+    visitors: Number(visitorsResult[0]?.count ?? 0),
+    pending: Number(pendingCount[0]?.count ?? 0),
   };
 }
 

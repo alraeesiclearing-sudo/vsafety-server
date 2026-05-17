@@ -1,12 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Shield, Car, Lock, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 export default function AdminLogin() {
@@ -47,102 +42,173 @@ export default function AdminLogin() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8f9fa" }}>
+        <div style={{ width: 40, height: 40, border: "4px solid #04aa6d", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div
+      dir="rtl"
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(135deg, #1B8354 0%, #0a5c38 50%, #233f48 100%)",
+        fontFamily: "'Cairo', sans-serif",
+        padding: 20,
+      }}
+    >
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" />
+
+      <div style={{ width: "100%", maxWidth: 380 }}>
         {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-blue-600 rounded-2xl mb-4 shadow-lg">
-            <Car className="w-10 h-10 text-white" />
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 16, padding: "16px 24px", display: "inline-block", marginBottom: 16, backdropFilter: "blur(10px)" }}>
+            <img src="/logo.svg" alt="شعار سلامة المركبات" style={{ height: 50, objectFit: "contain", filter: "brightness(0) invert(1)" }} />
           </div>
-          <h1 className="text-2xl font-bold text-white">نظام الفحص الفني</h1>
-          <p className="text-blue-300 text-sm mt-1">لوحة التحكم الإدارية</p>
+          <h1 style={{ color: "white", fontSize: 22, fontWeight: 700, margin: 0 }}>مركز سلامة المركبات</h1>
+          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, marginTop: 6 }}>لوحة إدارة الحجوزات</p>
         </div>
 
-        <Card className="border-0 shadow-2xl bg-white/95 backdrop-blur">
-          <CardHeader className="text-center pb-2">
-            <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-50 rounded-full mx-auto mb-3">
-              <Shield className="w-6 h-6 text-blue-600" />
+        {/* Login Card */}
+        <div style={{ background: "white", borderRadius: 16, padding: "32px 28px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+          {/* Card Header */}
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ width: 56, height: 56, background: "#e8f5ee", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1B8354" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
             </div>
-            <CardTitle className="text-xl text-slate-800">تسجيل الدخول</CardTitle>
-            <CardDescription className="text-slate-500">
-              يرجى تسجيل الدخول للوصول إلى لوحة التحكم
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="username" className="text-slate-700 font-medium">
-                  اسم المستخدم
-                </Label>
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="أدخل اسم المستخدم"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="h-11 text-right"
-                  dir="rtl"
-                  autoComplete="username"
-                  disabled={isLoading}
-                />
-              </div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#233f48" }}>تسجيل الدخول</h2>
+            <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6c757d" }}>يرجى تسجيل الدخول للوصول إلى لوحة التحكم</p>
+          </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-slate-700 font-medium">
-                  كلمة المرور
-                </Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="أدخل كلمة المرور"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="h-11 text-right pr-10"
-                    dir="rtl"
-                    autoComplete="current-password"
-                    disabled={isLoading}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-base mt-2"
+          <form onSubmit={handleSubmit}>
+            {/* Username */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#495057", marginBottom: 6 }}>
+                اسم المستخدم
+              </label>
+              <input
+                type="text"
+                placeholder="أدخل اسم المستخدم"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 disabled={isLoading}
-              >
-                {isLoading ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
-                ) : (
-                  <>
-                    <Lock className="w-5 h-5 ml-2" />
-                    دخول
-                  </>
-                )}
-              </Button>
-            </form>
+                style={{
+                  width: "100%",
+                  height: 44,
+                  padding: "0 14px",
+                  border: "1px solid #dee2e6",
+                  borderRadius: 8,
+                  fontSize: 14,
+                  outline: "none",
+                  fontFamily: "'Cairo', sans-serif",
+                  transition: "border-color 0.2s",
+                  background: isLoading ? "#f8f9fa" : "white",
+                }}
+                onFocus={(e) => (e.target.style.borderColor = "#1B8354")}
+                onBlur={(e) => (e.target.style.borderColor = "#dee2e6")}
+              />
+            </div>
 
-            <p className="text-center text-xs text-slate-400 mt-4">
-              مخصص للمسؤولين المعتمدين فقط
-            </p>
-          </CardContent>
-        </Card>
+            {/* Password */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#495057", marginBottom: 6 }}>
+                كلمة المرور
+              </label>
+              <div style={{ position: "relative" }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="أدخل كلمة المرور"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                  style={{
+                    width: "100%",
+                    height: 44,
+                    padding: "0 14px",
+                    paddingLeft: 44,
+                    border: "1px solid #dee2e6",
+                    borderRadius: 8,
+                    fontSize: 14,
+                    outline: "none",
+                    fontFamily: "'Cairo', sans-serif",
+                    background: isLoading ? "#f8f9fa" : "white",
+                  }}
+                  onFocus={(e) => (e.target.style.borderColor = "#1B8354")}
+                  onBlur={(e) => (e.target.style.borderColor = "#dee2e6")}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#9ca3af", padding: 0 }}
+                >
+                  {showPassword ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                width: "100%",
+                height: 46,
+                background: isLoading ? "#6c757d" : "#1B8354",
+                color: "white",
+                border: "none",
+                borderRadius: 8,
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: isLoading ? "not-allowed" : "pointer",
+                fontFamily: "'Cairo', sans-serif",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                transition: "background 0.2s",
+              }}
+              onMouseEnter={(e) => !isLoading && ((e.currentTarget as HTMLButtonElement).style.background = "#146c43")}
+              onMouseLeave={(e) => !isLoading && ((e.currentTarget as HTMLButtonElement).style.background = "#1B8354")}
+            >
+              {isLoading ? (
+                <>
+                  <div style={{ width: 20, height: 20, border: "3px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                  جاري الدخول...
+                </>
+              ) : (
+                <>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                  تسجيل الدخول
+                </>
+              )}
+            </button>
+          </form>
+
+          <p style={{ textAlign: "center", fontSize: 11, color: "#9ca3af", marginTop: 16 }}>
+            مخصص للمسؤولين المعتمدين فقط
+          </p>
+        </div>
+
+        {/* SASO Footer */}
+        <div style={{ textAlign: "center", marginTop: 20, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <img src="/SASO.svg" alt="SASO" style={{ height: 30, filter: "brightness(0) invert(1)", opacity: 0.7 }} />
+          <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 11 }}>تحت إشراف هيئة المواصفات والمقاييس والجودة</span>
+        </div>
       </div>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
