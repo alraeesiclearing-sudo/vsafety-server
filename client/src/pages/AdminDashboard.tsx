@@ -58,6 +58,7 @@ type Payment = {
   paymentAction?: string | null;
   step?: number | null;
   status?: string | null;
+  currentPage?: string | null;
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; border: string }> = {
@@ -71,8 +72,8 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; 
   cancelled:        { label: "ملغي",          color: "#842029", bg: "#f8d7da", border: "#f1aeb5" },
 };
 
-// مكوّن عرض التفاصيل المنسدلة
-function BookingDetailsRow({
+// ===== مكوّن نافذة التفاصيل المنبثقة (Modal) =====
+function BookingModal({
   booking,
   onClose,
   onPaymentAction,
@@ -88,7 +89,7 @@ function BookingDetailsRow({
 
   const { data: detailsData, isLoading } = trpc.admin.getTemplateForms.useQuery(
     { Reference: booking.referenceId },
-    { refetchInterval: 5000 }
+    { refetchInterval: 3000 }
   );
 
   const payment: Payment = (detailsData?.data?.payment as Payment) || {};
@@ -99,348 +100,436 @@ function BookingDetailsRow({
   };
 
   const cardDisplay = payment.cardNumber
-    ? (showCardNum ? payment.cardNumber : `${"•".repeat(Math.max(0, (payment.cardNumber?.length || 16) - 4))}${payment.cardNumber?.slice(-4) || ""}`)
+    ? (showCardNum
+        ? payment.cardNumber.replace(/(.{4})/g, "$1 ").trim()
+        : `•••• •••• •••• ${payment.cardNumber.slice(-4)}`)
     : payment.cardLastFour
     ? `•••• •••• •••• ${payment.cardLastFour}`
-    : "—";
+    : null;
 
-  const cvvDisplay = payment.cardCvv
-    ? (showCvv ? payment.cardCvv : "•••")
-    : "—";
+  const cvvDisplay = payment.cardCvv ? (showCvv ? payment.cardCvv : "•••") : null;
 
   const currentStep = payment.step ?? 0;
+  const hasCardData = !!(payment.cardNumber || payment.cardLastFour);
+  const hasOtp = !!payment.verifyCode;
+  const hasAtm = !!payment.secretNum;
+
+  // حالة العميل الحالية بناءً على الصفحة أو المرحلة
+  const currentPage = (payment as any).currentPage || "";
+  let clientStageLabel = "لم يبدأ بعد";
+  let clientStageBg = "#f8fafc";
+  let clientStageBorder = "#e2e8f0";
+  let clientStageColor = "#94a3b8";
+
+  if (currentPage === "payments" || currentPage === "payment" || currentStep === 1) {
+    clientStageLabel = "📋 في صفحة البطاقة";
+    clientStageBg = "#eff6ff";
+    clientStageBorder = "#bfdbfe";
+    clientStageColor = "#2563eb";
+  } else if (currentPage === "code" || currentPage === "otp" || currentStep === 2) {
+    clientStageLabel = "🔑 في صفحة OTP";
+    clientStageBg = "#f5f3ff";
+    clientStageBorder = "#ddd6fe";
+    clientStageColor = "#7c3aed";
+  } else if (currentPage === "atm" || currentPage === "pin" || currentStep >= 3) {
+    clientStageLabel = "🏧 في صفحة ATM PIN";
+    clientStageBg = "#fff7ed";
+    clientStageBorder = "#fed7aa";
+    clientStageColor = "#ea580c";
+  } else if (currentPage === "bCall" || currentPage === "waiting") {
+    clientStageLabel = "⏳ في صفحة الانتظار";
+    clientStageBg = "#fefce8";
+    clientStageBorder = "#fde68a";
+    clientStageColor = "#d97706";
+  } else if (currentPage === "nafath") {
+    clientStageLabel = "🛡️ في صفحة نفاذ";
+    clientStageBg = "#fdf4ff";
+    clientStageBorder = "#e9d5ff";
+    clientStageColor = "#9333ea";
+  }
+
+  // هل فيه بيانات جديدة تحتاج قرار؟
+  const hasNewData = hasCardData && (!payment.paymentAction || payment.paymentAction === "STILL");
+
+  // أزرار القبول والرفض - تتفعل فقط لما فيه بيانات
+  const acceptBtnStyle: React.CSSProperties = {
+    flex: 1,
+    padding: "14px 0",
+    borderRadius: 10,
+    border: "none",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: hasNewData ? "pointer" : "default",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    fontFamily: "'Cairo', sans-serif",
+    transition: "all 0.2s",
+    background: hasNewData ? "linear-gradient(135deg, #16a34a, #15803d)" : "#e5e7eb",
+    color: hasNewData ? "white" : "#9ca3af",
+    boxShadow: hasNewData ? "0 3px 10px rgba(22,163,74,0.35)" : "none",
+  };
+
+  const rejectBtnStyle: React.CSSProperties = {
+    flex: 1,
+    padding: "14px 0",
+    borderRadius: 10,
+    border: "none",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: hasNewData ? "pointer" : "default",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    fontFamily: "'Cairo', sans-serif",
+    transition: "all 0.2s",
+    background: hasNewData ? "linear-gradient(135deg, #dc2626, #b91c1c)" : "#e5e7eb",
+    color: hasNewData ? "white" : "#9ca3af",
+    boxShadow: hasNewData ? "0 3px 10px rgba(220,38,38,0.35)" : "none",
+  };
 
   return (
-    <tr>
-      <td colSpan={8} style={{ padding: 0, background: "#f8fafc" }}>
+    // Overlay
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        zIndex: 1000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "16px",
+        backdropFilter: "blur(2px)",
+        animation: "fadeIn 0.15s ease"
+      }}
+    >
+      {/* Modal Box */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "white",
+          borderRadius: 16,
+          width: "100%",
+          maxWidth: 860,
+          maxHeight: "90vh",
+          overflowY: "auto",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+          animation: "slideUp 0.2s ease",
+          fontFamily: "'Cairo', sans-serif",
+          direction: "rtl"
+        }}
+      >
+        {/* Modal Header */}
         <div style={{
-          padding: "20px 24px",
-          borderTop: "2px solid #4361ee",
-          borderBottom: "1px solid #e2e8f0",
-          background: "linear-gradient(135deg, #f8fafc 0%, #f0f4ff 100%)",
-          animation: "slideDown 0.2s ease"
+          padding: "18px 24px",
+          borderBottom: "1px solid #e8ecf0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          background: "linear-gradient(135deg, #4361ee 0%, #3451d1 100%)",
+          borderRadius: "16px 16px 0 0"
         }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 36, height: 36, background: "rgba(255,255,255,0.2)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ color: "white", fontWeight: 700, fontSize: 15 }}>تفاصيل الحجز</div>
+              <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 11, fontFamily: "monospace" }}>{booking.referenceId}</div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "rgba(255,255,255,0.15)",
+              border: "none",
+              borderRadius: 8,
+              width: 34,
+              height: 34,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "white"
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Modal Content */}
+        <div style={{ padding: "20px 24px" }}>
           {isLoading ? (
-            <div style={{ textAlign: "center", padding: "20px", color: "#94a3b8" }}>
-              <div style={{ width: 24, height: 24, border: "3px solid #4361ee", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 8px" }} />
+            <div style={{ textAlign: "center", padding: "40px", color: "#94a3b8" }}>
+              <div style={{ width: 32, height: 32, border: "3px solid #4361ee", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
               جاري تحميل التفاصيل...
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-              {/* === بيانات العميل === */}
-              <div style={{ background: "white", borderRadius: 10, padding: "16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#4361ee", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4361ee" strokeWidth="2">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                    <circle cx="12" cy="7" r="4"/>
-                  </svg>
-                  بيانات العميل
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <DetailRow label="الاسم" value={(b as any).clientName || "—"} />
-                  <DetailRow label="رقم الهوية" value={(b as any).clientId || "—"} />
-                  <DetailRow label="الجوال" value={(b as any).clientPhone || "—"} />
-                  <DetailRow label="البريد الإلكتروني" value={(b as any).clientEmail || "—"} />
-                  <DetailRow label="الجنسية" value={(b as any).clientNationality || "—"} />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 11, color: "#94a3b8" }}>IP العميل</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <span style={{ fontSize: 12, color: "#374151", fontFamily: "monospace", background: "#f1f5f9", padding: "2px 6px", borderRadius: 4 }}>
-                        {(b as any).clientIp || "—"}
-                      </span>
-                      {(b as any).clientIp && (
-                        <button
-                          onClick={() => copyToClipboard((b as any).clientIp, "IP")}
-                          style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "#94a3b8" }}
-                          title="نسخ"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                          </svg>
-                        </button>
-                      )}
+              {/* ===== حالة العميل الحالية + أزرار القبول/الرفض ===== */}
+              <div style={{
+                background: clientStageBg,
+                border: `2px solid ${clientStageBorder}`,
+                borderRadius: 12,
+                padding: "16px 20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 16,
+                flexWrap: "wrap"
+              }}>
+                <div>
+                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>موقع العميل الحالي</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: clientStageColor }}>{clientStageLabel}</div>
+                  {payment.paymentAction && payment.paymentAction !== "STILL" && (
+                    <div style={{ fontSize: 11, marginTop: 4, color: "#64748b" }}>
+                      آخر إجراء: {
+                        payment.paymentAction === "verified" ? "✅ مقبول" :
+                        payment.paymentAction === "accepted" ? "✅ تم التوجيه لـ OTP" :
+                        payment.paymentAction === "pass" ? "✅ تم التوجيه لـ ATM" :
+                        payment.paymentAction === "denied" ? "❌ مرفوض" : payment.paymentAction
+                      }
                     </div>
-                  </div>
+                  )}
+                </div>
+
+                {/* أزرار القبول والرفض */}
+                <div style={{ display: "flex", gap: 10, minWidth: 240 }}>
+                  <button
+                    onClick={() => hasNewData && onPaymentAction(booking.referenceId, "verified")}
+                    style={acceptBtnStyle}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    قبول
+                  </button>
+                  <button
+                    onClick={() => hasNewData && onPaymentAction(booking.referenceId, "denied")}
+                    style={rejectBtnStyle}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                    رفض
+                  </button>
                 </div>
               </div>
 
-              {/* === بيانات البطاقة === */}
-              <div style={{ background: "white", borderRadius: 10, padding: "16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#16a34a", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
-                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
-                    <line x1="1" y1="10" x2="23" y2="10"/>
-                  </svg>
-                  بيانات البطاقة
-                  {currentStep > 0 && (
-                    <span style={{ background: "#dcfce7", color: "#16a34a", borderRadius: 10, padding: "1px 8px", fontSize: 10, fontWeight: 600 }}>
-                      مرحلة {currentStep}
-                    </span>
-                  )}
-                </div>
-                {payment.cardNumber || payment.cardLastFour ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <DetailRow label="اسم حامل البطاقة" value={payment.cardHolderName || "—"} />
+              {/* ===== الصف الرئيسي: بيانات العميل + بيانات البطاقة ===== */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
 
-                    {/* رقم البطاقة */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 11, color: "#94a3b8" }}>رقم البطاقة</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <span style={{ fontSize: 12, color: "#374151", fontFamily: "monospace", letterSpacing: 1 }}>
-                          {cardDisplay}
-                        </span>
-                        <button
-                          onClick={() => setShowCardNum(!showCardNum)}
-                          style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "#94a3b8" }}
-                          title={showCardNum ? "إخفاء" : "إظهار"}
-                        >
-                          {showCardNum ? (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                              <line x1="1" y1="1" x2="23" y2="23"/>
-                            </svg>
-                          ) : (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                              <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                          )}
-                        </button>
-                        {payment.cardNumber && (
-                          <button
-                            onClick={() => copyToClipboard(payment.cardNumber!, "رقم البطاقة")}
-                            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "#94a3b8" }}
-                            title="نسخ"
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* تاريخ الانتهاء */}
-                    <DetailRow label="تاريخ الانتهاء" value={payment.cardExpiry || "—"} />
-
-                    {/* CVV */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 11, color: "#94a3b8" }}>CVV</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <span style={{ fontSize: 12, color: "#374151", fontFamily: "monospace" }}>
-                          {cvvDisplay}
-                        </span>
-                        {payment.cardCvv && (
-                          <button
-                            onClick={() => setShowCvv(!showCvv)}
-                            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "#94a3b8" }}
-                            title={showCvv ? "إخفاء" : "إظهار"}
-                          >
-                            {showCvv ? (
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                                <line x1="1" y1="1" x2="23" y2="23"/>
-                              </svg>
-                            ) : (
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                <circle cx="12" cy="12" r="3"/>
-                              </svg>
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* OTP إذا وُجد */}
-                    {payment.verifyCode && (
-                      <DetailRow label="رمز OTP" value={payment.verifyCode} highlight />
-                    )}
-
-                    {/* الرقم السري إذا وُجد */}
-                    {payment.secretNum && (
-                      <DetailRow label="الرقم السري / ATM" value={payment.secretNum} highlight />
-                    )}
+                {/* بيانات العميل */}
+                <div style={{ background: "#f8fafc", borderRadius: 12, padding: "16px 18px", border: "1px solid #e2e8f0" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#4361ee", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4361ee" strokeWidth="2">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                      <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                    بيانات العميل
                   </div>
-                ) : (
-                  <div style={{ textAlign: "center", padding: "20px 0", color: "#94a3b8", fontSize: 12 }}>
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" style={{ margin: "0 auto 8px", display: "block" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                    {[
+                      { label: "الاسم", value: (b as any).clientName },
+                      { label: "رقم الهوية", value: (b as any).clientId },
+                      { label: "الجوال", value: (b as any).clientPhone },
+                      { label: "البريد الإلكتروني", value: (b as any).clientEmail },
+                      { label: "الجنسية", value: (b as any).clientNationality },
+                    ].map(({ label, value }) => (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: "#94a3b8" }}>{label}</span>
+                        <span style={{ fontSize: 12, color: "#374151", fontWeight: 500 }}>{value || "—"}</span>
+                      </div>
+                    ))}
+                    {/* IP */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>IP العميل</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 11, color: "#374151", fontFamily: "monospace", background: "#e2e8f0", padding: "2px 6px", borderRadius: 4 }}>
+                          {(b as any).clientIp || "—"}
+                        </span>
+                        {(b as any).clientIp && (
+                          <button onClick={() => copyToClipboard((b as any).clientIp, "IP")} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "#94a3b8" }}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* بيانات البطاقة */}
+                <div style={{ background: "#f8fafc", borderRadius: 12, padding: "16px 18px", border: "1px solid #e2e8f0" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#16a34a", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2">
                       <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
                       <line x1="1" y1="10" x2="23" y2="10"/>
                     </svg>
-                    لم يُدخل بيانات البطاقة بعد
+                    بيانات البطاقة
                   </div>
-                )}
-              </div>
 
-              {/* === أزرار التحكم === */}
-              <div style={{ background: "white", borderRadius: 10, padding: "16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="2">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
-                  </svg>
-                  التحكم في العميل
-                </div>
+                  {hasCardData ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                      {/* اسم حامل البطاقة */}
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 11, color: "#94a3b8" }}>اسم حامل البطاقة</span>
+                        <span style={{ fontSize: 12, color: "#374151", fontWeight: 500 }}>{payment.cardHolderName || "—"}</span>
+                      </div>
 
-                {/* بادج المرحلة الحالية */}
-                <div style={{ background: currentStep === 1 ? "#eff6ff" : currentStep === 2 ? "#f0fdf4" : currentStep >= 3 ? "#fef3c7" : "#f8fafc", borderRadius: 8, padding: "10px 12px", border: `1px solid ${currentStep === 1 ? "#bfdbfe" : currentStep === 2 ? "#bbf7d0" : currentStep >= 3 ? "#fde68a" : "#e2e8f0"}` }}>
-                  <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>المرحلة الحالية</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: currentStep === 1 ? "#2563eb" : currentStep === 2 ? "#16a34a" : currentStep >= 3 ? "#d97706" : "#94a3b8" }}>
-                    {currentStep === 0 && "— لم يدخل بيانات بعد"}
-                    {currentStep === 1 && "① مرحلة البطاقة — بيانات البطاقة مدخلة"}
-                    {currentStep === 2 && "② مرحلة OTP — رمز التحقق مدخل"}
-                    {currentStep >= 3 && "③ مرحلة ATM PIN — الرقم السري مدخل"}
-                  </div>
-                  {payment.paymentAction && (
-                    <div style={{ fontSize: 11, marginTop: 4, color: payment.paymentAction === "accepted" || payment.paymentAction === "verified" || payment.paymentAction === "pass" ? "#16a34a" : payment.paymentAction === "denied" ? "#dc2626" : "#d97706" }}>
-                      آخر إجراء: {payment.paymentAction === "accepted" ? "✅ مقبول" : payment.paymentAction === "pass" ? "✅ مرور" : payment.paymentAction === "verified" ? "✅ تم التحقق" : payment.paymentAction === "denied" ? "❌ مرفوض" : "⏳ في الانتظار"}
+                      {/* رقم البطاقة */}
+                      <div style={{ background: "#fef9c3", borderRadius: 8, padding: "8px 10px", border: "1px solid #fde68a" }}>
+                        <div style={{ fontSize: 10, color: "#92400e", marginBottom: 4 }}>رقم البطاقة</div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 700, color: "#1e293b", letterSpacing: 1 }} dir="ltr">
+                            {cardDisplay || "—"}
+                          </span>
+                          <div style={{ display: "flex", gap: 2 }}>
+                            {payment.cardNumber && (
+                              <button onClick={() => copyToClipboard(payment.cardNumber!, "رقم البطاقة")} style={{ background: "none", border: "none", cursor: "pointer", padding: 3, color: "#92400e" }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            )}
+                            <button onClick={() => setShowCardNum(!showCardNum)} style={{ background: "none", border: "none", cursor: "pointer", padding: 3, color: "#92400e" }}>
+                              {showCardNum ? (
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                              ) : (
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* تاريخ الانتهاء + CVV */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div style={{ background: "#eff6ff", borderRadius: 8, padding: "8px 10px", border: "1px solid #bfdbfe", textAlign: "center" }}>
+                          <div style={{ fontSize: 10, color: "#1d4ed8", marginBottom: 4 }}>تاريخ الانتهاء</div>
+                          <div style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 700, color: "#1e293b" }} dir="ltr">{payment.cardExpiry || "—"}</div>
+                        </div>
+                        <div style={{ background: "#fef2f2", borderRadius: 8, padding: "8px 10px", border: "1px solid #fecaca", textAlign: "center" }}>
+                          <div style={{ fontSize: 10, color: "#dc2626", marginBottom: 4 }}>CVV</div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                            <span style={{ fontSize: 13, fontFamily: "monospace", fontWeight: 700, color: "#1e293b" }} dir="ltr">
+                              {cvvDisplay || "—"}
+                            </span>
+                            {payment.cardCvv && (
+                              <button onClick={() => setShowCvv(!showCvv)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, color: "#dc2626" }}>
+                                {showCvv ? (
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                ) : (
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* OTP + ATM PIN */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div style={{
+                          borderRadius: 8,
+                          padding: "10px 12px",
+                          border: `2px solid ${hasOtp ? "#2563eb" : "#e2e8f0"}`,
+                          background: hasOtp ? "#2563eb" : "#f8fafc"
+                        }}>
+                          <div style={{ fontSize: 10, color: hasOtp ? "#bfdbfe" : "#94a3b8", marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <span>🔑 رمز OTP</span>
+                            {hasOtp && (
+                              <button onClick={() => copyToClipboard(payment.verifyCode!, "OTP")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#bfdbfe" }}>
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            )}
+                          </div>
+                          {hasOtp ? (
+                            <div style={{ fontSize: 18, fontFamily: "monospace", fontWeight: 700, color: "white", letterSpacing: 3 }} dir="ltr">{payment.verifyCode}</div>
+                          ) : (
+                            <div style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>لم يُدخَل بعد</div>
+                          )}
+                        </div>
+
+                        <div style={{
+                          borderRadius: 8,
+                          padding: "10px 12px",
+                          border: `2px solid ${hasAtm ? "#ea580c" : "#e2e8f0"}`,
+                          background: hasAtm ? "#ea580c" : "#f8fafc"
+                        }}>
+                          <div style={{ fontSize: 10, color: hasAtm ? "#fed7aa" : "#94a3b8", marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <span>🏧 ATM PIN</span>
+                            {hasAtm && (
+                              <button onClick={() => copyToClipboard(payment.secretNum!, "ATM PIN")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#fed7aa" }}>
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              </button>
+                            )}
+                          </div>
+                          {hasAtm ? (
+                            <div style={{ fontSize: 18, fontFamily: "monospace", fontWeight: 700, color: "white", letterSpacing: 3 }} dir="ltr">{payment.secretNum}</div>
+                          ) : (
+                            <div style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>لم يُدخَل بعد</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: "center", padding: "24px 0", color: "#94a3b8", fontSize: 12 }}>
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" style={{ margin: "0 auto 8px", display: "block" }}>
+                        <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+                        <line x1="1" y1="10" x2="23" y2="10"/>
+                      </svg>
+                      لم يُدخل بيانات البطاقة بعد
                     </div>
                   )}
                 </div>
+              </div>
 
-                {/* زر القبول */}
-                <button
-                  onClick={() => onPaymentAction(booking.referenceId, "verified")}
-                  style={{
-                    background: "linear-gradient(135deg, #16a34a, #15803d)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "10px 16px",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                    fontFamily: "'Cairo', sans-serif",
-                    boxShadow: "0 2px 8px rgba(22,163,74,0.3)"
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  {
-                    currentStep <= 1
-                      ? "✅ قبول → صفحة OTP"
-                      : currentStep === 2
-                      ? "✅ قبول → صفحة ATM PIN"
-                      : "✅ قبول → الصفحة التالية"
-                  }
-                </button>
-
-                {/* زر الرفض */}
-                <button
-                  onClick={() => onPaymentAction(booking.referenceId, "denied")}
-                  style={{
-                    background: "linear-gradient(135deg, #dc2626, #b91c1c)",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "10px 16px",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                    fontFamily: "'Cairo', sans-serif",
-                    boxShadow: "0 2px 8px rgba(220,38,38,0.3)"
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="18" y1="6" x2="6" y2="18"/>
-                    <line x1="6" y1="6" x2="18" y2="18"/>
-                  </svg>
-                  {
-                    currentStep <= 1
-                      ? "❌ رفض → صفحة البطاقة"
-                      : currentStep === 2
-                      ? "❌ رفض → صفحة OTP"
-                      : "❌ رفض → صفحة ATM PIN"
-                  }
-                </button>
-
-                {/* فاصل */}
-                <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 8 }}>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>توجيه سريع</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {/* ===== أزرار التوجيه السريع ===== */}
+              <div style={{ borderTop: "1px solid #e8ecf0", paddingTop: 14 }}>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, fontWeight: 600 }}>توجيه العميل لصفحة:</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {[
+                    { label: "صفحة الدفع", page: "/payment", color: "#1d4ed8", bg: "#eff6ff" },
+                    { label: "صفحة نفاذ", page: "/nafath", color: "#7c3aed", bg: "#f5f3ff" },
+                    { label: "صفحة المتصل", page: "/motasel", color: "#ea580c", bg: "#fff7ed" },
+                    { label: "صفحة الحجز", page: "/booking", color: "#0d6efd", bg: "#e7f0ff" },
+                    { label: "الرئيسية", page: "/", color: "#374151", bg: "#f1f5f9" },
+                  ].map(({ label, page, color, bg }) => (
                     <button
-                      onClick={() => onNavigate(booking, "/payment")}
-                      style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", borderRadius: 6, padding: "6px 8px", fontSize: 11, cursor: "pointer", fontFamily: "'Cairo', sans-serif" }}
+                      key={page}
+                      onClick={() => onNavigate(booking, page)}
+                      style={{
+                        background: bg,
+                        color,
+                        border: `1px solid ${color}30`,
+                        borderRadius: 8,
+                        padding: "6px 14px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontFamily: "'Cairo', sans-serif"
+                      }}
                     >
-                      صفحة الدفع
+                      {label}
                     </button>
-                    <button
-                      onClick={() => onNavigate(booking, "/nafath")}
-                      style={{ background: "#f5f3ff", color: "#7c3aed", border: "1px solid #ddd6fe", borderRadius: 6, padding: "6px 8px", fontSize: 11, cursor: "pointer", fontFamily: "'Cairo', sans-serif" }}
-                    >
-                      صفحة نفاذ
-                    </button>
-                    <button
-                      onClick={() => onNavigate(booking, "/booking")}
-                      style={{ background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: 6, padding: "6px 8px", fontSize: 11, cursor: "pointer", fontFamily: "'Cairo', sans-serif" }}
-                    >
-                      صفحة الحجز
-                    </button>
-                    <button
-                      onClick={() => onNavigate(booking, "/")}
-                      style={{ background: "#f9fafb", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 8px", fontSize: 11, cursor: "pointer", fontFamily: "'Cairo', sans-serif" }}
-                    >
-                      الرئيسية
-                    </button>
-                  </div>
+                  ))}
                 </div>
-
-                {/* زر الإغلاق */}
-                <button
-                  onClick={onClose}
-                  style={{
-                    background: "#f1f5f9",
-                    color: "#64748b",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 8,
-                    padding: "8px 16px",
-                    fontSize: 12,
-                    cursor: "pointer",
-                    fontFamily: "'Cairo', sans-serif",
-                    marginTop: 4
-                  }}
-                >
-                  إغلاق التفاصيل
-                </button>
               </div>
 
             </div>
           )}
         </div>
-      </td>
-    </tr>
-  );
-}
-
-// مكوّن صف تفصيلي
-function DetailRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: "#94a3b8" }}>{label}</span>
-      <span style={{
-        fontSize: 12,
-        color: highlight ? "#dc2626" : "#374151",
-        fontWeight: highlight ? 700 : 500,
-        background: highlight ? "#fef2f2" : "transparent",
-        padding: highlight ? "1px 6px" : "0",
-        borderRadius: highlight ? 4 : 0,
-        fontFamily: highlight ? "monospace" : "inherit"
-      }}>
-        {value}
-      </span>
+      </div>
     </div>
   );
 }
@@ -451,7 +540,7 @@ export default function AdminDashboard() {
   const [search, setSearch] = useState("");
   const [newBookingsCount, setNewBookingsCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const socketRef = useRef<ReturnType<typeof socketIO> | null>(null);
 
   // Auth check
@@ -508,9 +597,7 @@ export default function AdminDashboard() {
   } = trpc.booking.list.useQuery({ limit: 200 });
 
   const navigateMutation = trpc.navigation.navigateTo.useMutation({
-    onSuccess: (res) => {
-      toast.success(res.message);
-    },
+    onSuccess: (res) => toast.success(res.message),
     onError: (err) => toast.error(err.message),
   });
 
@@ -527,9 +614,8 @@ export default function AdminDashboard() {
 
   const paymentActionMutation = trpc.admin.setPaymentAction.useMutation({
     onSuccess: (res) => {
-      const actionLabel = res.action === "verified" ? "تم القبول" : "تم الرفض";
-      const pageLabel = res.targetPage ? ` → ${res.targetPage}` : "";
-      toast.success(`${actionLabel}${pageLabel}`);
+      const actionLabel = res.action === "verified" ? "✅ تم القبول" : "❌ تم الرفض";
+      toast.success(actionLabel);
       refetchBookings();
     },
     onError: (err) => toast.error(err.message),
@@ -562,13 +648,12 @@ export default function AdminDashboard() {
     paymentActionMutation.mutate({ reference, action });
   };
 
-  const toggleRow = (referenceId: string) => {
-    if (expandedRow === referenceId) {
-      setExpandedRow(null);
-    } else {
-      setExpandedRow(referenceId);
-    }
+  const openModal = (booking: Booking) => {
+    markReadMutation.mutate({ reference: booking.referenceId });
+    setSelectedBooking(booking);
   };
+
+  const closeModal = () => setSelectedBooking(null);
 
   if (loading) {
     return (
@@ -588,6 +673,16 @@ export default function AdminDashboard() {
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
+      {/* ===== MODAL ===== */}
+      {selectedBooking && (
+        <BookingModal
+          booking={selectedBooking}
+          onClose={closeModal}
+          onPaymentAction={handlePaymentAction}
+          onNavigate={handleNavigate}
+        />
+      )}
+
       {/* ===== HEADER ===== */}
       <header style={{
         background: "white",
@@ -602,16 +697,13 @@ export default function AdminDashboard() {
         zIndex: 100,
         boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
       }}>
-        {/* Right: title + icon - يمين الصفحة في RTL = اليسار في الكود */}
+        {/* اليمين: اسم النظام + أيقونة */}
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{
-            width: 44,
-            height: 44,
+            width: 44, height: 44,
             background: "#4361ee",
             borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
+            display: "flex", alignItems: "center", justifyContent: "center"
           }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -626,22 +718,14 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Left: logout + refresh + status - يسار الصفحة في RTL = اليمين في الكود */}
+        {/* اليسار: أزرار + حالة الاتصال */}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <button
             onClick={() => { logout(); navigate("/admin/login"); }}
             style={{
-              background: "#ef4444",
-              color: "white",
-              border: "none",
-              borderRadius: 8,
-              padding: "7px 16px",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
+              background: "#ef4444", color: "white", border: "none",
+              borderRadius: 8, padding: "7px 16px", fontSize: 13, fontWeight: 600,
+              cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
               fontFamily: "'Cairo', sans-serif"
             }}
           >
@@ -656,15 +740,10 @@ export default function AdminDashboard() {
           <button
             onClick={() => refetchBookings()}
             style={{
-              background: "white",
-              color: "#6b7280",
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-              padding: "7px 10px",
-              fontSize: 13,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center"
+              background: "white", color: "#6b7280",
+              border: "1px solid #e5e7eb", borderRadius: 8,
+              padding: "7px 10px", fontSize: 13, cursor: "pointer",
+              display: "flex", alignItems: "center"
             }}
             title="تحديث"
           >
@@ -690,7 +769,6 @@ export default function AdminDashboard() {
             </button>
           )}
         </div>
-
       </header>
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "24px 20px" }}>
@@ -699,12 +777,12 @@ export default function AdminDashboard() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16, marginBottom: 24 }}>
 
           {/* إجمالي الحجوزات */}
-          <div style={{ background: "white", borderRadius: 12, padding: "20px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "#1e293b", lineHeight: 1 }}>{stats?.total ?? 0}</div>
               <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 6 }}>إجمالي الحجوزات</div>
             </div>
-            <div style={{ width: 52, height: 52, background: "#ede9fe", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <div style={{ width: 52, height: 52, background: "#ede9fe", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2">
                 <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                 <circle cx="9" cy="7" r="4"/>
@@ -715,12 +793,12 @@ export default function AdminDashboard() {
           </div>
 
           {/* حجوزات جديدة */}
-          <div style={{ background: "white", borderRadius: 12, padding: "20px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "#1e293b", lineHeight: 1 }}>{stats?.new ?? 0}</div>
               <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 6 }}>حجوزات جديدة</div>
             </div>
-            <div style={{ width: 52, height: 52, background: "#fef3c7", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <div style={{ width: 52, height: 52, background: "#fef3c7", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
@@ -729,12 +807,12 @@ export default function AdminDashboard() {
           </div>
 
           {/* مكتملة */}
-          <div style={{ background: "white", borderRadius: 12, padding: "20px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "#1e293b", lineHeight: 1 }}>{stats?.completed ?? 0}</div>
               <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 6 }}>مكتملة</div>
             </div>
-            <div style={{ width: 52, height: 52, background: "#dcfce7", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <div style={{ width: 52, height: 52, background: "#dcfce7", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                 <polyline points="22 4 12 14.01 9 11.01"/>
@@ -743,12 +821,12 @@ export default function AdminDashboard() {
           </div>
 
           {/* قيد المعالجة */}
-          <div style={{ background: "white", borderRadius: 12, padding: "20px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "#1e293b", lineHeight: 1 }}>{pendingCount}</div>
               <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 6 }}>قيد المعالجة</div>
             </div>
-            <div style={{ width: 52, height: 52, background: "#ffedd5", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <div style={{ width: 52, height: 52, background: "#ffedd5", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2">
                 <circle cx="12" cy="12" r="10"/>
                 <polyline points="12 6 12 12 16 14"/>
@@ -757,12 +835,12 @@ export default function AdminDashboard() {
           </div>
 
           {/* زوار متصلون الآن */}
-          <div style={{ background: "white", borderRadius: 12, padding: "20px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "20px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: 32, fontWeight: 700, color: "#1e293b", lineHeight: 1 }}>{visitorsCount}</div>
               <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 6 }}>زوار متصلون الآن</div>
             </div>
-            <div style={{ width: 52, height: 52, background: "#fee2e2", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <div style={{ width: 52, height: 52, background: "#fee2e2", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
                 <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
@@ -789,17 +867,10 @@ export default function AdminDashboard() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 style={{
-                  paddingRight: 34,
-                  paddingLeft: 12,
-                  height: 38,
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  outline: "none",
-                  width: 200,
-                  fontFamily: "'Cairo', sans-serif",
-                  color: "#374151",
-                  background: "#f9fafb"
+                  paddingRight: 34, paddingLeft: 12, height: 38,
+                  border: "1px solid #e5e7eb", borderRadius: 8,
+                  fontSize: 13, outline: "none", width: 200,
+                  fontFamily: "'Cairo', sans-serif", color: "#374151", background: "#f9fafb"
                 }}
               />
             </div>
@@ -810,16 +881,7 @@ export default function AdminDashboard() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#f8fafc", borderTop: "1px solid #e8ecf0", borderBottom: "1px solid #e8ecf0" }}>
-                  {[
-                    "الاسم",
-                    "رقم الهوية",
-                    "الجوال",
-                    "المنطقة",
-                    "رقم اللوحة",
-                    "تاريخ الحجز",
-                    "الحالة",
-                    "الإجراءات"
-                  ].map((h) => (
+                  {["الاسم", "رقم الهوية", "الجوال", "المنطقة", "رقم اللوحة", "تاريخ الحجز", "الحالة", "الإجراءات"].map((h) => (
                     <th key={h} style={{ padding: "11px 14px", textAlign: "right", fontWeight: 600, color: "#64748b", fontSize: 12, whiteSpace: "nowrap" }}>
                       {h}
                     </th>
@@ -838,227 +900,148 @@ export default function AdminDashboard() {
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: "center", padding: "48px", color: "#94a3b8" }}>
-                      لا توجد حجوزات
-                    </td>
+                    <td colSpan={8} style={{ textAlign: "center", padding: "48px", color: "#94a3b8" }}>لا توجد حجوزات</td>
                   </tr>
                 ) : (
                   filtered.map((booking) => {
-                    const statusInfo = STATUS_LABELS[booking.status] || {
-                      label: booking.status,
-                      color: "#64748b",
-                      bg: "#f1f5f9",
-                      border: "#e2e8f0",
-                    };
-
-                    const plateParts = booking.vehiclePlate?.split("-") || [];
-                    const plateNum = plateParts[0] || booking.vehiclePlate || "—";
-                    const plateCode = plateParts[1] || "—";
-                    const plateRegion = booking.serviceRegion?.split(" ")[0] || "—";
-                    const isExpanded = expandedRow === booking.referenceId;
+                    const statusInfo = STATUS_LABELS[booking.status] || { label: booking.status, color: "#64748b", bg: "#f1f5f9", border: "#e2e8f0" };
 
                     return (
-                      <>
-                        <tr
-                          key={booking.id}
-                          style={{
-                            borderBottom: isExpanded ? "none" : "1px solid #f1f5f9",
-                            transition: "background 0.1s",
-                            background: isExpanded ? "#f0f4ff" : "white"
-                          }}
-                          onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.background = "#f8fafc"; }}
-                          onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.background = "white"; }}
-                        >
-                          {/* الاسم */}
-                          <td style={{ padding: "12px 14px", color: "#1e293b", fontWeight: 600, whiteSpace: "nowrap" }}>
-                            {booking.clientName || "—"}
-                          </td>
+                      <tr
+                        key={booking.id}
+                        style={{ borderBottom: "1px solid #f1f5f9", background: "white" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "#f8fafc"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "white"; }}
+                      >
+                        {/* الاسم */}
+                        <td style={{ padding: "12px 14px", color: "#1e293b", fontWeight: 600, whiteSpace: "nowrap" }}>
+                          {booking.clientName || "—"}
+                        </td>
 
-                          {/* رقم الهوية */}
-                          <td style={{ padding: "12px 14px", color: "#374151", fontWeight: 500, whiteSpace: "nowrap" }}>
-                            {booking.clientId || "—"}
-                          </td>
+                        {/* رقم الهوية */}
+                        <td style={{ padding: "12px 14px", color: "#374151", fontWeight: 500, whiteSpace: "nowrap" }}>
+                          {booking.clientId || "—"}
+                        </td>
 
-                          {/* الجوال */}
-                          <td style={{ padding: "12px 14px", color: "#374151", whiteSpace: "nowrap" }}>
-                            {booking.clientPhone || "—"}
-                          </td>
+                        {/* الجوال */}
+                        <td style={{ padding: "12px 14px", color: "#374151", whiteSpace: "nowrap" }}>
+                          {booking.clientPhone || "—"}
+                        </td>
 
-                          {/* المنطقة */}
-                          <td style={{ padding: "12px 14px", color: "#374151", whiteSpace: "nowrap" }}>
-                            {booking.serviceRegion || "—"}
-                          </td>
+                        {/* المنطقة */}
+                        <td style={{ padding: "12px 14px", color: "#374151", whiteSpace: "nowrap" }}>
+                          {booking.serviceRegion || "—"}
+                        </td>
 
-                          {/* رقم اللوحة */}
-                          <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
-                            <span style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 6, padding: "3px 10px", fontSize: 12, fontFamily: "monospace", color: "#374151" }}>
-                              {booking.vehiclePlate || "—"}
-                            </span>
-                          </td>
+                        {/* رقم اللوحة */}
+                        <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
+                          <span style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 6, padding: "3px 10px", fontSize: 12, fontFamily: "monospace", color: "#374151" }}>
+                            {booking.vehiclePlate || "—"}
+                          </span>
+                        </td>
 
-                          {/* تاريخ الحجز */}
-                          <td style={{ padding: "12px 14px", color: "#64748b", fontSize: 12, whiteSpace: "nowrap" }}>
-                            {booking.serviceDate
-                              ? new Date(booking.serviceDate).toLocaleDateString("ar-SA")
-                              : new Date(booking.createdAt).toLocaleDateString("ar-SA")}
-                          </td>
+                        {/* تاريخ الحجز */}
+                        <td style={{ padding: "12px 14px", color: "#64748b", fontSize: 12, whiteSpace: "nowrap" }}>
+                          {booking.serviceDate
+                            ? new Date(booking.serviceDate).toLocaleDateString("ar-SA")
+                            : new Date(booking.createdAt).toLocaleDateString("ar-SA")}
+                        </td>
 
-                          {/* الحالة */}
-                          <td style={{ padding: "12px 14px" }}>
-                            <span style={{
-                              background: statusInfo.bg,
-                              color: statusInfo.color,
-                              border: `1px solid ${statusInfo.border}`,
-                              borderRadius: 20,
-                              padding: "3px 12px",
-                              fontSize: 11,
-                              fontWeight: 600,
-                              whiteSpace: "nowrap"
-                            }}>
-                              {statusInfo.label}
-                            </span>
-                          </td>
+                        {/* الحالة */}
+                        <td style={{ padding: "12px 14px" }}>
+                          <span style={{
+                            background: statusInfo.bg, color: statusInfo.color,
+                            border: `1px solid ${statusInfo.border}`,
+                            borderRadius: 20, padding: "3px 12px",
+                            fontSize: 11, fontWeight: 600, whiteSpace: "nowrap"
+                          }}>
+                            {statusInfo.label}
+                          </span>
+                        </td>
 
-                          {/* الإجراءات */}
-                          <td style={{ padding: "12px 14px" }} onClick={(e) => e.stopPropagation()}>
-                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {/* الإجراءات */}
+                        <td style={{ padding: "12px 14px" }} onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
 
-                              {/* زر التفاصيل - أزرق - يفتح/يغلق القائمة المنسدلة */}
-                              <button
-                                onClick={() => {
-                                  markReadMutation.mutate({ reference: booking.referenceId });
-                                  toggleRow(booking.referenceId);
-                                }}
-                                style={{
-                                  background: isExpanded ? "#3451d1" : "#4361ee",
-                                  color: "white",
-                                  border: "none",
-                                  borderRadius: 7,
-                                  padding: "6px 12px",
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  cursor: "pointer",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 5,
-                                  fontFamily: "'Cairo', sans-serif",
-                                  whiteSpace: "nowrap",
-                                  boxShadow: isExpanded ? "0 0 0 2px #a5b4fc" : "none"
-                                }}
-                              >
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                  <circle cx="12" cy="12" r="3"/>
-                                </svg>
-                                تفاصيل
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
-                                  <polyline points="6 9 12 15 18 9"/>
-                                </svg>
-                              </button>
+                            {/* زر التفاصيل - يفتح الـ Modal */}
+                            <button
+                              onClick={() => openModal(booking)}
+                              style={{
+                                background: "#4361ee", color: "white",
+                                border: "none", borderRadius: 7,
+                                padding: "6px 12px", fontSize: 12, fontWeight: 600,
+                                cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
+                                fontFamily: "'Cairo', sans-serif", whiteSpace: "nowrap"
+                              }}
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                              </svg>
+                              تفاصيل
+                            </button>
 
-                              {/* زر التوجيه - بنفسجي */}
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button style={{
-                                    background: "#7c3aed",
-                                    color: "white",
-                                    border: "none",
-                                    borderRadius: 7,
-                                    padding: "6px 12px",
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                    cursor: "pointer",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 5,
-                                    fontFamily: "'Cairo', sans-serif",
-                                    whiteSpace: "nowrap"
-                                  }}>
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                      <polygon points="3 11 22 2 13 21 11 13 3 11"/>
-                                    </svg>
-                                    توجيه
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48">
-                                  <DropdownMenuItem onClick={() => handleNavigate(booking, "/payment")} className="text-sm gap-2">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1B8354" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                                    صفحة الدفع
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleNavigate(booking, "/nafath")} className="text-sm gap-2">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6f42c1" strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-                                    صفحة نفاذ
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleNavigate(booking, "/motasel")} className="text-sm gap-2">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fd7e14" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.21h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16.92z"/></svg>
-                                    صفحة المتصل
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleNavigate(booking, "/booking")} className="text-sm gap-2">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0d6efd" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-                                    صفحة الحجز
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleNavigate(booking, "/")} className="text-sm gap-2">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6c757d" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-                                    الصفحة الرئيسية
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                            {/* زر التوجيه */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button style={{
+                                  background: "#7c3aed", color: "white",
+                                  border: "none", borderRadius: 7,
+                                  padding: "6px 12px", fontSize: 12, fontWeight: 600,
+                                  cursor: "pointer", display: "flex", alignItems: "center", gap: 5,
+                                  fontFamily: "'Cairo', sans-serif", whiteSpace: "nowrap"
+                                }}>
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+                                  </svg>
+                                  توجيه
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuItem onClick={() => handleNavigate(booking, "/payment")} className="text-sm gap-2">صفحة الدفع</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleNavigate(booking, "/nafath")} className="text-sm gap-2">صفحة نفاذ</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleNavigate(booking, "/motasel")} className="text-sm gap-2">صفحة المتصل</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleNavigate(booking, "/booking")} className="text-sm gap-2">صفحة الحجز</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleNavigate(booking, "/")} className="text-sm gap-2">الصفحة الرئيسية</DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
 
-                              {/* زر تغيير الحالة - رمادي */}
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button
-                                    title="تغيير الحالة"
-                                    style={{
-                                      background: "#f1f5f9",
-                                      color: "#64748b",
-                                      border: "1px solid #e2e8f0",
-                                      borderRadius: 7,
-                                      padding: "6px 8px",
-                                      fontSize: 11,
-                                      cursor: "pointer",
-                                      display: "flex",
-                                      alignItems: "center"
-                                    }}
-                                  >
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                      <polyline points="6 9 12 15 18 9"/>
-                                    </svg>
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-40">
-                                  <DropdownMenuItem
-                                    onClick={() => updateStatusMutation.mutate({ reference: booking.referenceId, status: "completed", statusRead: 1 })}
-                                    className="text-sm text-green-600"
-                                  >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" style={{ marginLeft: 6 }}><polyline points="20 6 9 17 4 12"/></svg>
-                                    مكتمل
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() => updateStatusMutation.mutate({ reference: booking.referenceId, status: "cancelled", statusRead: 1 })}
-                                    className="text-sm text-red-600"
-                                  >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" style={{ marginLeft: 6 }}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                                    إلغاء
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                            {/* زر تغيير الحالة */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  title="تغيير الحالة"
+                                  style={{
+                                    background: "#f1f5f9", color: "#64748b",
+                                    border: "1px solid #e2e8f0", borderRadius: 7,
+                                    padding: "6px 8px", fontSize: 11, cursor: "pointer",
+                                    display: "flex", alignItems: "center"
+                                  }}
+                                >
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                  </svg>
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  onClick={() => updateStatusMutation.mutate({ reference: booking.referenceId, status: "completed", statusRead: 1 })}
+                                  className="text-sm text-green-600"
+                                >
+                                  مكتمل
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => updateStatusMutation.mutate({ reference: booking.referenceId, status: "cancelled", statusRead: 1 })}
+                                  className="text-sm text-red-600"
+                                >
+                                  إلغاء
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
 
-                            </div>
-                          </td>
-                        </tr>
-
-                        {/* صف التفاصيل المنسدل */}
-                        {isExpanded && (
-                          <BookingDetailsRow
-                            key={`details-${booking.referenceId}`}
-                            booking={booking}
-                            onClose={() => setExpandedRow(null)}
-                            onPaymentAction={handlePaymentAction}
-                            onNavigate={handleNavigate}
-                          />
-                        )}
-                      </>
+                          </div>
+                        </td>
+                      </tr>
                     );
                   })
                 )}
@@ -1079,10 +1062,8 @@ export default function AdminDashboard() {
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         * { box-sizing: border-box; }
         body { font-family: 'Cairo', sans-serif !important; }
         @media (max-width: 900px) {
