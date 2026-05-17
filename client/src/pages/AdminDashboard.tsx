@@ -354,9 +354,11 @@ export default function AdminDashboard() {
               <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 6 }}>زوار متصلون الآن</div>
             </div>
             <div style={{ width: 52, height: 52, background: "#fee2e2", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2">
-                <path d="M1.05 1h21.9M8.5 1v3M15.5 1v3M1 7h22M5 11h.01M12 11h.01M19 11h.01M5 15h.01M12 15h.01M19 15h.01M5 19h.01M12 19h.01M19 19h.01"/>
-                <rect x="1" y="1" width="22" height="22" rx="2"/>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+                <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                <line x1="12" y1="20" x2="12.01" y2="20"/>
               </svg>
             </div>
           </div>
